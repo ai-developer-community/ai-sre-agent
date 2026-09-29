@@ -6,7 +6,7 @@ from google.cloud import pubsub_v1
 logger = logging.getLogger(__name__)
 
 
-def parse_alert(raw, project, service):
+def parse_alert(raw, project, service, region=None):
     if len(raw) > 128_000:
         raise ValueError("Alert exceeds 128 KB")
     payload = json.loads(raw)
@@ -21,6 +21,8 @@ def parse_alert(raw, project, service):
         raise ValueError("Invalid resource labels")
     if labels.get("project_id") != project or labels.get("service_name") != service:
         raise ValueError("Alert does not match the configured project and service")
+    if region is not None and labels.get("location") != region:
+        raise ValueError("Alert does not match the configured region")
     if incident.get("state") not in ("open", "closed"):
         raise ValueError("Unsupported incident state")
     return payload
@@ -63,7 +65,10 @@ class Subscriber:
     def receive(self, message):
         try:
             payload = parse_alert(
-                message.data, self.settings.project_id, self.settings.shop_service
+                message.data,
+                self.settings.project_id,
+                self.settings.shop_service,
+                self.settings.region,
             )
         except (ValueError, TypeError, KeyError):
             logger.warning("Rejected invalid or out-of-scope alert %s", message.message_id)

@@ -153,7 +153,11 @@ def alert_payload():
             "incident_id": "123",
             "state": "open",
             "resource": {
-                "labels": {"project_id": "project", "service_name": "shop"},
+                "labels": {
+                    "project_id": "project",
+                    "service_name": "shop",
+                    "location": "europe-west2",
+                },
             },
         }
     }
