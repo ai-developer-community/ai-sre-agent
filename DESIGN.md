@@ -2,30 +2,28 @@
 
 ## Direction
 
-A restrained dark operations console, matching the user's requested recording surface. Product clarity leads: an incident ledger on the left, conversation in the center, evidence and tool activity on the right. No simulated telemetry or dashboard filler.
+A minimal light operations console, as requested by the user. White workspace, pale grey incident sidebar, dark text and quiet dividers. Conversation leads; evidence and activity appear beside a selected incident. No decorative tagline, simulated telemetry or empty dashboard panels.
 
 ## Tokens
 
-- Background `#111513`, sidebar `#151a17`, conversation `#181e1a`.
-- Primary text `#e4e9e5`, secondary text `#9ca99f`.
-- Human action accent `#c5e6ab`; active incidents use amber `#e1b975`.
-- Borders `#2b332e`; compact controls use 5–9px corners, workspace 10px.
-- System sans text for operator familiarity; monospace reserved for tool JSON.
+- Background `#ffffff`, sidebar `#f7f8fa`, primary text `#202328`.
+- Secondary text `#646b75`, dividers `#e5e7eb`, links and focus `#294ec4`.
+- Amber identifies open incidents; green identifies resolved incidents and an API connection, never inferred service health.
+- System sans for the operator interface; monospace only for code and raw observations.
+- Body text 14px, supporting UI 11–13px, page title 23px. Small controls use 6–8px corners; composer uses 12px.
 
 ## Layout
 
-Desktop uses a 244px incident sidebar and flexible main region. Main content has a conversation and 300px context panel. Below 850px, context follows chat. Below 600px, sidebar becomes a horizontal incident selector. The conversation scrolls independently on desktop, preserving the input and evidence context.
+Desktop uses a 232px incident sidebar, compact service metadata, and a viewport-height conversation with a persistent composer. A selected incident adds a 280px evidence/activity column. The empty state is a single column with three suggested questions. Below 900px, context follows the conversation; below 600px, incidents become a horizontal selector and the page scrolls normally.
 
-## Behavior
+## Behavior and safety
 
-Polling refreshes incident and tool records. No false health indicator: the service bar explicitly says health requires a fresh investigation. The composer disables while the selected investigation is queued or running. Resolved incidents remain readable. Evidence links open only approved Google Cloud HTTPS destinations; message and tool content renders as text. Failed sends preserve the question. Incident closure uses inline resolution notes.
+Polling, chat submission, CSRF, disabled run states, failed-send draft preservation and human closure remain unchanged. Monitoring payloads are retained behind a native disclosure. Assistant Markdown renders headings, lists and code without raw HTML or image loading. Links are restricted to Google Cloud HTTPS hosts. Ordinary user messages remain literal text. Evidence JSON and tool details stay expandable. The model name remains visible; the decorative footer tagline is removed.
 
-## Accessibility
+## Accessibility and verification
 
-Named inputs, explicit button labels, keyboard focus outlines, responsive text wrapping, reduced-motion support, and text accompanying all status colors. Muted text maintains legibility against dark surfaces. Generated activity is presented as tool actions, never private model reasoning.
+Named controls, keyboard focus, native disclosure controls, text accompanying status colours, reduced motion and responsive wrapping. Desktop and mobile are checked against real cloud incident records. Message-rendering tests cover formatting, unsafe links, HTML/images, collapsed notifications and literal user text.
 
-## Execution scope
+## Scope
 
-This minimalist demo was built directly in code from the user's pinned operations-console brief. A direction seed was invoked and returned a degraded result without challengers; the full direction-roll decision workflow and FORM contract were omitted. The delivered interface is therefore reviewed against the concrete user brief and live browser behavior, rather than claiming a completed concept-selection process or an approved image comp.
-
-Desktop layout uses a viewport-height flex column: actual banner, header and service-bar heights determine the remaining workspace height. Conversation content scrolls inside that remaining space, keeping the composer and Send button visible. At tablet and phone widths, the page uses normal vertical scrolling and the context panel follows the conversation.
+This is a direct refinement of the existing console to the user's explicit light-mode brief. The previous incomplete concept-round metadata is historical; no new concept-comp workflow is claimed or repaired by this change.
