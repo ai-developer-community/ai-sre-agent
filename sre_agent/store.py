@@ -14,6 +14,7 @@ from sqlalchemy import (
     Table,
     Text,
     create_engine,
+    func,
     insert,
     select,
     update,
@@ -93,6 +94,8 @@ class Store:
         self.engine = create_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=0)
 
     def initialize(self):
+        from sre_agent.rollback import actions  # noqa: F401
+
         metadata.create_all(self.engine)
 
     def _enqueue(self, conn, incident_id, content, request_id):
@@ -147,7 +150,7 @@ class Store:
                         insert(events).values(
                             incident_id=incident_id,
                             kind="notification",
-                            content="Notification received after human closure",
+                            content="Notification received after incident closure",
                             data={"source_id": source_id},
                         )
                     )
@@ -178,7 +181,51 @@ class Store:
                 raise KeyError(incident_id)
             if row["status"] == "resolved":
                 raise ValueError("This incident is closed. Start a new investigation.")
+            self.require_no_action(conn, incident_id)
             return self._enqueue(conn, incident_id, content, request_id)
+
+    def action(self, conn, incident_id):
+        from sre_agent.rollback import actions
+
+        row = (
+            conn.execute(
+                select(actions)
+                .where(actions.c.incident_id == incident_id)
+                .order_by(actions.c.created_at.desc())
+                .limit(1)
+            )
+            .mappings()
+            .first()
+        )
+        return dict(row) if row else None
+
+    def summary(self):
+        from sre_agent.rollback import ACTIVE, actions
+
+        queued = (
+            select(runs.c.id)
+            .where(runs.c.incident_id == incidents.c.id, runs.c.status.in_(["queued", "running"]))
+            .exists()
+        )
+        changing = (
+            select(actions.c.id)
+            .where(actions.c.incident_id == incidents.c.id, actions.c.status.in_(ACTIVE))
+            .exists()
+        )
+        with self.engine.connect() as conn:
+
+            def count(*conditions):
+                return conn.execute(
+                    select(func.count())
+                    .select_from(incidents)
+                    .where(incidents.c.status != "resolved", *conditions)
+                ).scalar_one()
+
+            return {
+                "active": count(),
+                "attention": count(~queued, ~changing),
+                "investigating": count(queued, ~changing),
+            }
 
     def list_incidents(self):
         with self.engine.connect() as conn:
@@ -194,6 +241,7 @@ class Store:
                     .order_by(runs.c.created_at.desc(), runs.c.id.desc())
                     .limit(1)
                 ).scalar()
+                item["action"] = self.action(conn, row["id"])
                 result.append(item)
             return result
 
@@ -213,6 +261,7 @@ class Store:
                 .order_by(runs.c.created_at.desc(), runs.c.id.desc())
                 .limit(1)
             ).scalar()
+            item["action"] = self.action(conn, incident_id)
             result = {"incident": item}
             for name, table in [("messages", messages), ("events", events), ("evidence", evidence)]:
                 rows = list(
@@ -315,6 +364,7 @@ class Store:
             ).first()
             if active:
                 raise ValueError("Wait for the investigation to finish before closing.")
+            self.require_no_action(conn, incident_id)
             if row["status"] == "resolved":
                 return
             conn.execute(
@@ -333,6 +383,16 @@ class Store:
                     incident_id=incident_id, kind="closed", content=notes, data={"actor": "human"}
                 )
             )
+
+    def require_no_action(self, conn, incident_id):
+        from sre_agent.rollback import ACTIVE, actions
+
+        if conn.execute(
+            select(actions.c.id).where(
+                actions.c.incident_id == incident_id, actions.c.status.in_(ACTIVE)
+            )
+        ).first():
+            raise ValueError("Wait for rollback and recovery verification to finish.")
 
     def recent_lessons(self):
         with self.engine.connect() as conn:

@@ -1,56 +1,75 @@
-# On-call desk v1
+# On-call desk architecture
 
-This document describes the local and hosted implementations. Cloud Run can host the console and investigator with Cloud SQL Postgres; the local proxy only authenticates browser access. [The earlier hosted design](docs/design-history.md) is historical. V1 prioritizes investigation: rollback is proposed as a human-run command, not executed by the agent.
+## Executive summary
 
-## Flow
+The on-call desk investigates one demo Cloud Run shop and supports operator-approved recovery. PostgreSQL is the source of truth for incidents, investigation runs, messages, evidence, events, lessons and rollback proposals. The Python backend serves the React console and runs a serial background worker.
+
+The key boundary is that the model has only four read tools. A production change must originate from an explicit operator request and approval, pass the deterministic executor's checks, and produce fresh checkout evidence before the incident becomes resolved. Model output and log text cannot approve a mutation.
+
+### System architecture
 
 ```mermaid
 flowchart LR
-    Shop[Demo shop on Cloud Run] --> Google[Logging and Monitoring]
-    Google --> Alert[Monitoring 5xx alert]
-    Alert --> PubSub[Pub/Sub pull subscription]
-    PubSub --> Intake[Subscriber]
-    UI[Authenticated web console] --> API[FastAPI]
-    Intake --> DB[(PostgreSQL / Cloud SQL)]
-    API <--> DB
-    DB <--> Worker[One investigator worker]
-    Worker <--> Claude[Claude Agent SDK and model]
-    Claude --> Tools[Four read-only SDK MCP tools]
-    Tools --> Google
-    Tools --> Revisions[Cloud Run revision reads]
+    Shop[Demo Cloud Run shop] --> Monitoring[Logging and Monitoring]
+    Monitoring --> PubSub[Pub/Sub subscription]
+    PubSub --> Backend[Cloud Run backend and subscriber]
+    Operator[Operator browser] --> Access[IAP or authenticated local proxy]
+    Access --> Backend
+    Backend <--> DB[(Cloud SQL PostgreSQL)]
+    DB <--> Worker[Serial worker]
+    Worker --> Agent[Claude Agent SDK and four read tools]
+    Agent --> Monitoring
+    Agent --> Revisions[Cloud Run metadata]
+    Worker --> Executor[Approved rollback executor]
+    Executor --> Shop
 ```
 
-## Components
+### Dependency hierarchy
 
-- `shop/app.py`: Flask products, checkout and liveness endpoints. Failure switches create real structured error logs. No real payments.
-- `sre_agent/main.py`: API and built React UI. Mutation routes require a per-process CSRF token and enforce configured host and exact origin allowlists. Google credentials never reach the browser.
-- `sre_agent/store.py`: SQLAlchemy tables for incidents, messages, runs, evidence, events and human-recorded lessons. Short PostgreSQL transactions persist requests before acknowledgement. Schema creation is automatic. The hosted script provisions a dedicated Cloud SQL instance and database.
-- `sre_agent/subscriber.py`: Google Pub/Sub pull client. Validates the configured project/service/region, persists a run, then acknowledges. Invalid messages are rejected. Persistence failures request redelivery.
-- `sre_agent/worker.py`: one worker selected with a PostgreSQL session advisory lock. Claims queued runs serially. Caught failures become visible failed runs. Standby revisions retry leadership during rollouts, and database connection failures retry. On leader restart, interrupted runs are marked failed for human retry. An unset model leaves the worker paused while the subscriber can retain queued alerts.
-- `sre_agent/runner.py`: fresh Claude SDK client per run, explicit stored context, isolated temporary working/config directory, no built-in tools, exact approved MCP tool names and a denying hook for other tools. Model calls are bounded by a turn, cost and time limit.
-- `sre_agent/telemetry.py`: fixed read-only Google API calls for shop logs, request metrics, serving revisions and deployment audit events. Evidence includes query/window, timestamps, limits and Console links.
-- `frontend/src/main.jsx`: incident list, retained chat, evidence/activity panes and human closure notes. Plain-text model output prevents HTML injection. No fabricated charts or automatic green status.
+`main.py` composes settings, store, subscriber, investigator and rollback executor. The subscriber only persists validated notifications. The worker claims persisted work and calls either the investigator or executor. Both write observations through the store. Google clients live in `telemetry.py` and `rollback.py`.
 
-## State and behavior
+The SDK cannot call the executor. Only the API approval route advances a saved proposal into executable work. The service identity is shared by these components; the tool boundary is enforced in application code, not separate process credentials.
 
-Pub/Sub delivery IDs and client request IDs deduplicate intake; Monitoring incident IDs link notifications from the same incident. Unrelated alerts are not correlated. The worker can be offline while runs remain queued in Postgres. Pub/Sub holds alerts while the whole app is offline, within its configured retention window.
+## Incident investigation
 
-Each chat turn reloads recent messages, evidence and up to ten human-recorded lessons. It does not depend on SDK session files. Closing is a human API action, refused while work is queued or running. It saves the human's notes with incident provenance. Late alerts cannot reopen a human-closed record.
+Monitoring notifications must match the configured project, shop service and region. The subscriber persists a notification and queued run before acknowledging Pub/Sub. Invalid inputs are discarded; persistence failures request redelivery. Delivery IDs deduplicate intake and Monitoring incident IDs group notifications for the same incident. Different incidents are not correlated.
 
-An SDK failure creates an explicit error response, not an invented diagnosis. Read-tool failures become missing evidence. Missing telemetry must not be described as health. The application does not mechanically verify the truth of the model's narrative: users must inspect evidence. Human closure is not proof of recovery.
+A PostgreSQL session advisory lock selects one worker. Standby revisions retry leadership during rollout. Each investigation gets a fresh SDK client, isolated temporary settings directory, stored conversation context and up to ten human-recorded lessons. Four in-process MCP tools read bounded logs, metrics, revisions and deployment events. All other tools, including shell access, are denied. Telemetry query windows are bounded to 60 minutes, and model runs to 240 seconds, 15 turns and a two-dollar SDK budget by default.
 
-## Hosted and local boundaries
+An unset model leaves investigations queued. Model and tool failures stay visible and cannot establish health. Queued work survives restart; interrupted investigations require a human retry. Database-session loss can briefly overlap read-only work, so investigation execution is not exactly once.
 
-The hosted script deploys one non-root Cloud Run process with instance-based CPU allocation and minimum/maximum service instances of one. Both console and shop require IAM authentication. A local gcloud proxy authenticates browser access; closing it does not stop the agent. Exact host/origin allowlists include Cloud Run's returned hostname and the localhost proxy origin. Secrets and ignored local state are excluded from build uploads.
+## Approved rollback
 
-Cloud SQL PostgreSQL 17 stores state through Cloud Run's mounted SQL socket. The generated database URL lives in Secret Manager. The attached investigator identity has telemetry reads, model prediction, the demo subscription, SQL connectivity and access to that one secret. Telemetry viewer roles cover the personal infrastructure project; fixed tool filters narrow investigations to the shop. No client-project roles or service-account keys are created. A separate builder reads the source bucket, writes images to the build repository and writes build logs. The shop receives no project roles.
+An explicit operator chat command such as `rollback the change` selects a deterministic API path. It reads the configured healthy revision and current Cloud Run state, rejects split traffic or a reconciling deployment, and stores a five-minute proposal. The UI displays the exact current and target revisions. Model-generated text cannot enter this approval route.
 
-Run one backend process locally, with Postgres in Docker, for development. Local ADC is separate from gcloud CLI login. Cloud Run uses attached-identity ADC; neither mode implies that the Claude model has been enabled. An Anthropic API key is an explicit local alternative.
+The approval endpoint checks the incident, proposal expiry, active work and globally active mutations, then persists approval and actor provenance. The worker claims the action once. Immediately before the change, the executor rechecks the configured service/target, URL, revision and etag. It sends a Cloud Run update with only the `traffic` field and the saved etag. A changed service rejects the stale proposal.
 
-Model runs are bounded by a default 240-second timeout, 15 turns and a two-dollar per-run SDK budget. These are not a project spending cap. The worker keeps one dedicated connection for its leader lock; normal queries use short transactions. Queued work survives restart, but interrupted runs require human retry. A database-session loss during an active model call can briefly overlap read-only investigations, so this is not exactly-once execution. Avoid console rollouts during recording.
+After the operation completes, five authenticated fake checkout requests must return HTTP 200, `paid`, and `v1-healthy`. The serving revision is checked throughout and again at the end. Results include observation times. Only then does a transaction lock the incident, cancel queued notification follow-ups and resolve it. Late notifications cannot reopen resolved records. Failed checks keep the incident active.
 
-No Slack, autonomous rollback, multi-client registry, alert correlation or parallel investigators are included. Operator scripts deploy and manually roll back the demo shop using separate credentials. See [hosted deployment](docs/hosted-demo.md) for recording, ongoing costs and shutdown. The authoritative cloud configuration is in [hosted.py](scripts/cloud/hosted.py), [demo.py](scripts/cloud/demo.py) and [Dockerfile](Dockerfile).
+Interrupted mutations become failed and are not replayed. A previous executor cannot overwrite the replacement worker's uncertain verdict. An operation timeout may mean traffic changed without confirmed recovery, so the operator must inspect fresh evidence before retrying. The known healthy target is configured from the operator's verified deployment, not inferred from revision age.
 
-## Proof and limitations
+## UI and trust boundaries
 
-See [verification](docs/verification.md) for checks actually run. Tests cover persistence, duplicate intake, human-only closure, SDK tool guards, missing-data behavior, hosted origin boundaries, alert region scope and worker handover. Browser checks cover the local app. Live model/GCP proof must be recorded separately; mock tests are not a claim of model accuracy.
+The light console separates investigating, needs attention, rolling back, verifying recovery and recovery verified. Counts cover all active records, while the sidebar lists the latest 100. Completing a model run never makes an incident green. A recovery result is a dated observation, not a permanent assertion of service health. Manual closure requires notes and does not prove recovery.
+
+Mutation routes require a per-process CSRF token and exact host/origin checks. Responses are not cached. Model Markdown is rendered without raw HTML or remote images; evidence links are restricted to Google Cloud HTTPS destinations. Alert payloads remain untrusted data behind a disclosure.
+
+The console requires Cloud Run IAM access. `access.py browser` can enable Google IAP for the named operator and grant Google's proxy identity console invocation. Before IAP, a local gcloud proxy supplies browser authentication. Neither the browser nor the model receives cloud keys.
+
+The investigator identity has telemetry viewer access in the demo project, model invocation, the demo subscription, SQL connectivity and access to its database secret. Fixed tool filters constrain the application scope; viewer IAM is not per-client isolation. `access.py rollback` adds service-update and invocation rights on the demo shop only. IAM service-update permission is broader than traffic updates; the executor's request mask supplies that narrower restriction. No client project is connected.
+
+## Runtime and storage
+
+Cloud Run hosts one non-root backend process with CPU allocated outside requests and a minimum/maximum instance setting of one. Rollouts can briefly overlap revisions. Cloud SQL PostgreSQL 17 stores durable state through a mounted SQL socket; its URL comes from Secret Manager. A separate builder identity owns source/image build access. The fake shop performs no real payments.
+
+Schema initialization creates missing tables, including additive `rollback_actions`; it does not migrate existing columns. Short transactions never span model or Cloud Run calls. One dedicated connection holds worker leadership. Cloud SQL and the minimum Cloud Run instance incur ongoing charges even with the browser closed.
+
+## Source map and verification
+
+- [API](sre_agent/main.py), [store](sre_agent/store.py), [worker](sre_agent/worker.py): intake, state, counts, approval and lifecycle.
+- [Investigator](sre_agent/runner.py), [telemetry](sre_agent/telemetry.py): model boundaries and evidence.
+- [Rollback executor](sre_agent/rollback.py): proposal, expiry, traffic update and checkout verification.
+- [Hosted deployment](scripts/cloud/hosted.py), [access setup](scripts/cloud/access.py), [demo scripts](scripts/cloud/demo.py): cloud configuration and operator setup.
+- [Recovery runbook](docs/approved-recovery.md): recording sequence, IAM limitations and failure handling.
+
+Tests cover real PostgreSQL persistence, deduplication, CSRF, expiry, stale plans, concurrent mutations, notification/closure races, restart uncertainty, request masks and failed recovery. Frontend tests distinguish triage completion from verified recovery. Mock cloud tests establish code behavior, not live model accuracy. Live cloud rollout, IAP and end-to-end rehearsal evidence must be recorded separately when performed.

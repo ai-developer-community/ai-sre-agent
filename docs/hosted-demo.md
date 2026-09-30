@@ -1,6 +1,6 @@
 # Hosted video demo
 
-One shop and one investigator, both in `personal-infrastructure-505708`, region `europe-west2`. Client projects are not connected. The agent investigates through four fixed read tools and cannot roll back or deploy infrastructure.
+One shop and one investigator, both in `personal-infrastructure-505708`, region `europe-west2`. Client projects are not connected. The model investigates through four fixed read tools. The console also supports an explicitly approved, fixed-target rollback through a separate executor path. See [approved recovery](approved-recovery.md) for the recording flow and access boundaries.
 
 ## Topology
 
@@ -16,7 +16,7 @@ Authenticate the operator with gcloud, then run:
 python scripts/cloud/demo.py setup
 python scripts/cloud/demo.py deploy-healthy
 python scripts/cloud/hosted.py infrastructure
-python scripts/cloud/hosted.py deploy --model claude-sonnet-4-6
+python scripts/cloud/hosted.py deploy --model claude-opus-5-5
 python scripts/cloud/hosted.py proxy
 ```
 

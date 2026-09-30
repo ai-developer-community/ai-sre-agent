@@ -2,7 +2,7 @@
 
 A minimal Claude agent investigates a real Cloud Run shop. Cloud Monitoring detects failures, Pub/Sub delivers alerts, and the agent reads logs, request metrics and deployment history. A web console shows its evidence and lets you challenge the diagnosis. PostgreSQL retains incidents and chat across restarts.
 
-**V1 investigates and proposes. Humans deploy fixes and close incidents.** There is no automated rollback, Slack app, alert correlation or fake production data. The earlier hosted/rollback design is retained in `docs/design-history.md` as history, not implemented behavior.
+**The agent investigates; the operator approves recovery.** An optional deterministic rollback executor prepares a saved revision change, requires an explicit Approve decision, and closes the incident only after five successful checkout checks. It is disabled until a healthy revision and demo-scoped permissions are configured. See [approved recovery](docs/approved-recovery.md). There is no autonomous rollback, Slack integration or alert correlation.
 
 ## Hosted video version
 
@@ -42,10 +42,10 @@ SDK tools use Google client libraries inside an in-process MCP server. This avoi
 1. Deploy healthy and start `python scripts/load.py SHOP_URL --authenticated --rps 5`. Give the charts ten minutes of baseline.
 2. Open the console and ask “How is production doing?” Check actual timestamps and evidence.
 3. Run `python scripts/cloud/demo.py deploy-broken`. This sends traffic explicitly to a revision with checkout failures.
-4. Wait for the real alert. The agent investigates automatically while the local backend is running. An alternative is **New investigation**, asking it to investigate checkout errors against the same live data.
+4. Wait for the real alert. The agent investigates automatically while the hosted worker is running. An alternative is **New investigation**, asking it to investigate checkout errors against the same live data.
 5. Open evidence and ask “Could this be something other than the deployment?” The agent should test that hypothesis, not agree automatically.
-6. Run the manual rollback script. Ask the agent to re-check checkout and current request metrics. A healthy liveness endpoint alone is not proof.
-7. Close the incident with your own resolution notes. Those notes become a lesson with the incident ID and date.
+6. With approved recovery configured, send “rollback the change”, review the exact revision card and choose **Approve** or **Deny**. Approval runs checkout checks before resolving the incident. Without recovery configured, use the manual rollback script and ask the agent to re-check production.
+7. For a manual fix, close with your resolution notes after checking health.
 8. Deploy broken again for the next take. Existing conversations and lessons remain in Postgres.
 
 While offline, Pub/Sub retains messages for the configured retention window. After local persistence, notifications are acknowledged and queued work survives restart. Only one investigator runs at a time. Caught model failures are visible and require a human retry; an interrupted run is marked failed on restart. Closed source incidents stay closed when late notifications arrive. Different Monitoring incidents remain separate; no correlation is attempted.

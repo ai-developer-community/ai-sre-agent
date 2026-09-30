@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from sre_agent.config import ROOT, Settings
+from sre_agent.rollback import RollbackCloud, Rollbacks, rollback_request
 from sre_agent.runner import AgentRunner
 from sre_agent.store import Store
 from sre_agent.subscriber import Subscriber
@@ -31,11 +32,12 @@ class CloseIncident(BaseModel):
     notes: str = Field(min_length=1, max_length=2000)
 
 
-def create_app(settings=None, store=None, runner=None, start_worker=True):
+def create_app(settings=None, store=None, runner=None, start_worker=True, rollback_cloud=None):
     settings = settings or Settings()
     store = store or Store(settings.database_url)
     csrf = secrets.token_urlsafe(32)
-    worker = Worker(store, runner or AgentRunner(settings, store))
+    rollbacks = Rollbacks(store, rollback_cloud or RollbackCloud(settings))
+    worker = Worker(store, runner or AgentRunner(settings, store), rollbacks)
     subscriber = Subscriber(settings, store)
     worker_enabled = start_worker and bool(settings.claude_model)
 
@@ -70,6 +72,7 @@ def create_app(settings=None, store=None, runner=None, start_worker=True):
             if not secrets.compare_digest(request.headers.get("x-csrf-token", ""), csrf):
                 return JSONResponse({"detail": "Missing or invalid session token"}, status_code=403)
         response = await call_next(request)
+        response.headers["Cache-Control"] = "no-store"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["Content-Security-Policy"] = (
@@ -85,6 +88,7 @@ def create_app(settings=None, store=None, runner=None, start_worker=True):
     @app.get("/api/status")
     def status():
         return {
+            "incidents": store.summary(),
             "project": settings.project_id,
             "service": settings.shop_service,
             "region": settings.region,
@@ -96,7 +100,8 @@ def create_app(settings=None, store=None, runner=None, start_worker=True):
             "worker_error": worker.error,
             "csrf_token": csrf,
             "configured": bool(settings.claude_model),
-            "mode": "read-only",
+            "mode": "approved-rollback" if settings.rollback_revision else "read-only",
+            "rollback_enabled": bool(settings.rollback_revision),
         }
 
     @app.get("/api/incidents")
@@ -121,9 +126,37 @@ def create_app(settings=None, store=None, runner=None, start_worker=True):
         if not body.content.strip():
             raise HTTPException(422, "Enter a message")
         try:
+            if rollback_request(body.content):
+                if not settings.rollback_revision:
+                    raise ValueError("Rollback is not configured for this service.")
+                return {"action": rollbacks.propose(incident_id, body.request_id, body.content)}
             return {"run_id": store.enqueue(incident_id, body.content, body.request_id)}
         except KeyError:
             raise HTTPException(404, "Incident not found") from None
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+
+    @app.post("/api/incidents/{incident_id}/actions/{action_id}/approve", status_code=202)
+    def approve(incident_id: int, action_id: str, request: Request):
+        if not settings.rollback_revision or not worker_enabled:
+            raise HTTPException(409, "Rollback executor is not enabled")
+        try:
+            actor = request.headers.get("x-goog-authenticated-user-email", "authenticated operator")
+            rollbacks.approve(incident_id, action_id, actor)
+            return {"status": "approved"}
+        except KeyError:
+            raise HTTPException(404, "Rollback proposal not found") from None
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+
+    @app.post("/api/incidents/{incident_id}/actions/{action_id}/deny")
+    def deny(incident_id: int, action_id: str, request: Request):
+        try:
+            actor = request.headers.get("x-goog-authenticated-user-email", "authenticated operator")
+            rollbacks.deny(incident_id, action_id, actor)
+            return {"status": "denied"}
+        except KeyError:
+            raise HTTPException(404, "Rollback proposal not found") from None
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from None
 
