@@ -1,8 +1,12 @@
 # On-call desk
 
-A minimal local Claude agent investigates a real Cloud Run shop. Cloud Monitoring detects failures, Pub/Sub delivers alerts, and the agent reads logs, request metrics and deployment history. A local web console shows its evidence and lets you challenge the diagnosis. PostgreSQL retains incidents and chat across restarts.
+A minimal Claude agent investigates a real Cloud Run shop. Cloud Monitoring detects failures, Pub/Sub delivers alerts, and the agent reads logs, request metrics and deployment history. A web console shows its evidence and lets you challenge the diagnosis. PostgreSQL retains incidents and chat across restarts.
 
 **V1 investigates and proposes. Humans deploy fixes and close incidents.** There is no automated rollback, Slack app, alert correlation or fake production data. The earlier hosted/rollback design is retained in `docs/design-history.md` as history, not implemented behavior.
+
+## Hosted video version
+
+Follow [hosted deployment and recording](docs/hosted-demo.md). Cloud Run hosts the agent and console; Cloud SQL stores incidents. The cloud agent runs independently of your laptop. Use `python scripts/cloud/hosted.py proxy` to open its private console at [localhost:8080](http://localhost:8080). Both the shop and console require IAM authentication. Only the demo app is monitored; no client projects are connected.
 
 ## Run locally
 
@@ -17,7 +21,7 @@ cp .env.example .env
 uv run uvicorn sre_agent.main:app --host 127.0.0.1 --port 8000
 ```
 
-Open [localhost:8000](http://localhost:8000). An unset model produces an explicit failed investigation, not a simulated diagnosis. PostgreSQL listens only on localhost:55432; its published password is for the local demo container only. Keep the backend on localhost and use one worker process, without auto-reload during recording.
+Open [localhost:8000](http://localhost:8000). An unset model displays a configuration gap and leaves work queued until a model is configured. PostgreSQL listens only on localhost:55432; its published password is for the local demo container only. Keep the backend on localhost and use one worker process, without auto-reload during recording.
 
 ## Connect Claude and Google Cloud
 
@@ -35,7 +39,7 @@ SDK tools use Google client libraries inside an in-process MCP server. This avoi
 
 ## Record the demo
 
-1. Deploy healthy and start `python scripts/load.py SHOP_URL --rps 5`. Give the charts ten minutes of baseline.
+1. Deploy healthy and start `python scripts/load.py SHOP_URL --authenticated --rps 5`. Give the charts ten minutes of baseline.
 2. Open the console and ask “How is production doing?” Check actual timestamps and evidence.
 3. Run `python scripts/cloud/demo.py deploy-broken`. This sends traffic explicitly to a revision with checkout failures.
 4. Wait for the real alert. The agent investigates automatically while the local backend is running. An alternative is **New investigation**, asking it to investigate checkout errors against the same live data.

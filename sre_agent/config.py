@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     claude_model: str = ""
     vertex_region: str = "global"
     anthropic_api_key: str = ""
+    allowed_hosts: list[str] = ["localhost", "127.0.0.1", "testserver"]
+    allowed_origins: list[str] = []
     subscriber_enabled: bool = False
     pubsub_subscription: str = "sre-demo-agent"
     run_timeout_seconds: int = Field(default=240, ge=10, le=600)

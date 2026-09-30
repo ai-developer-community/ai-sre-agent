@@ -7,6 +7,7 @@ const prompts = ['How is production doing?', 'What changed before the failures?'
 const time = (value) => value ? new Date(value).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
 const date = (value) => value ? new Date(value).toLocaleDateString([], {month: 'short', day: 'numeric'}) : '';
 const busy = (run) => ['queued', 'running'].includes(run);
+const progress = (run, configured) => run === 'queued' ? configured === false ? 'Waiting for model' : 'Queued' : run === 'running' ? 'Investigating' : run === 'failed' ? 'Investigation stopped' : null;
 function EvidenceLink({item}) {
   let safe = false;
   try {const url = new URL(item.url); safe = url.protocol === 'https:' && ['console.cloud.google.com', 'cloud.google.com'].includes(url.hostname);} catch {}
@@ -26,7 +27,7 @@ function App() {
   }
   useEffect(() => {
     let active = true;
-    const poll = async () => {try {const [s, list] = await Promise.all([api('/api/status'), api('/api/incidents')]); if (!active) return; setStatus(s); setIncidents(list); setLoaded(true); setConnectionError('');} catch (e) {if (active) {setConnectionError(`${e.message} Check that the local backend is running, then retry.`); setLoaded(true);}}};
+    const poll = async () => {try {const [s, list] = await Promise.all([api('/api/status'), api('/api/incidents')]); if (!active) return; setStatus(s); setIncidents(list); setLoaded(true); setConnectionError('');} catch (e) {if (active) {setConnectionError(`${e.message} Check the backend connection, then retry.`); setLoaded(true);}}};
     poll(); const timer = setInterval(poll, 4000); return () => {active = false; clearInterval(timer);};
   }, [refresh]);
   useEffect(() => {
@@ -53,8 +54,8 @@ function App() {
     <aside className="sidebar"><a className="brand" href="/" aria-label="On-call console home"><span className="brand-mark"><Activity size={23}/></span>on-call<span className="version">v1</span></a>
       <button className="new-button" onClick={() => {choose(null); composer.current?.focus();}} disabled={sending}><Plus size={17}/>New investigation</button>
       <div className="section-label">Investigations<span>{incidents.length}</span></div>
-      <nav className="incident-list" aria-label="Investigations">{incidents.map(item => <button className={`incident-button ${selected === item.id ? 'selected' : ''}`} key={item.id} onClick={() => choose(item.id)} disabled={sending}><span className={`incident-dot ${item.status === 'resolved' ? 'resolved' : ''}`}/><span className="incident-copy"><strong>{item.title || 'Production investigation'}</strong><small>{date(item.created_at)} · {busy(item.run_status) ? 'Investigating' : item.status === 'resolved' ? 'Resolved' : 'Open'}</small></span>{selected === item.id && <ChevronRight size={15}/>}</button>)}{loaded && !incidents.length && <p className="sidebar-empty">New alerts and manual investigations will appear here.</p>}</nav>
-      <div className="sidebar-bottom"><span className={`connection-dot ${status && !connectionError ? 'online' : ''}`}/><div><span>{connectionError ? 'Backend disconnected' : status ? 'Local console connected' : 'Connecting to backend'}</span><small>{connectionError ? 'Displayed data may be stale' : status?.subscriber_error ? 'Pub/Sub listener needs attention' : status?.subscriber_enabled ? 'Pub/Sub listener enabled' : 'Pub/Sub listener disabled'}</small></div></div>
+      <nav className="incident-list" aria-label="Investigations">{incidents.map(item => <button className={`incident-button ${selected === item.id ? 'selected' : ''}`} key={item.id} onClick={() => choose(item.id)} disabled={sending}><span className={`incident-dot ${item.status === 'resolved' ? 'resolved' : ''}`}/><span className="incident-copy"><strong>{item.title || 'Production investigation'}</strong><small>{date(item.created_at)} · {item.status === 'resolved' ? 'Resolved' : progress(item.run_status, status?.configured) || 'Open'}</small></span>{selected === item.id && <ChevronRight size={15}/>}</button>)}{loaded && !incidents.length && <p className="sidebar-empty">New alerts and manual investigations will appear here.</p>}</nav>
+      <div className="sidebar-bottom"><span className={`connection-dot ${status && !connectionError ? 'online' : ''}`}/><div><span>{connectionError ? 'Backend disconnected' : status ? 'Console connected' : 'Connecting to backend'}</span><small>{connectionError ? 'Displayed data may be stale' : status?.subscriber_error ? 'Pub/Sub listener needs attention' : status?.subscriber_enabled ? 'Pub/Sub listener enabled' : 'Pub/Sub listener disabled'}</small></div></div>
     </aside>
     <main>
       <header className="topbar"><span><span className="breadcrumb">Workspace</span><ChevronRight size={14}/><strong>Production</strong></span><span className="read-only"><Radio size={14}/>Investigation mode</span></header>
@@ -65,7 +66,7 @@ function App() {
       <div className="page-heading"><div><h1>{selected ? incident?.title || 'Loading investigation…' : 'Production, explained.'}</h1><p>{selected ? 'Follow the evidence. Ask the next question.' : 'An on-call partner for finding out what went wrong.'}</p></div>{incident && <span className={`status-tag ${incident.status === 'resolved' ? 'resolved' : ''}`}>{incident.status === 'resolved' ? <Check size={13}/> : <span className="incident-dot"/>}{incident.status === 'resolved' ? 'Resolved' : 'Open incident'}</span>}</div>
       <div className="environment"><div><span className="env-label">Service</span><strong>{status?.service || 'Not connected'}</strong></div><div><span className="env-label">Project</span><span>{status?.project || 'Unavailable'}</span></div><div><span className="env-label">Region</span><span>{status?.region || 'Unavailable'}</span></div><div className="health-note"><CircleHelp size={15}/><span>Health requires a fresh investigation</span></div></div>
       <div className="workspace">
-        <section className="conversation" aria-label="Agent conversation"><div className="panel-heading"><h2><MessageSquare size={16}/>Investigation</h2><span>{running ? 'In progress' : incident?.status === 'resolved' ? 'Closed' : 'Ask your agent'}</span></div>
+        <section className="conversation" aria-label="Agent conversation"><div className="panel-heading"><h2><MessageSquare size={16}/>Investigation</h2><span>{incident?.status === 'resolved' ? 'Closed' : progress(incident?.run_status, status?.configured) || 'Ask your agent'}</span></div>
           <div className="messages" aria-live="polite" aria-relevant="additions text">{!selected && <div className="welcome"><div className="welcome-icon"><Search size={29}/></div><h2>Start with a question.</h2><p>The agent checks your service, inspects logs and deployment history, and brings back findings with evidence.</p><div className="starter-list">{prompts.map(prompt => <button key={prompt} onClick={() => {setDraft(prompt); composer.current?.focus();}}>{prompt}<ArrowUpRight size={15}/></button>)}</div><small>Automatic alerts also start an investigation when the Pub/Sub listener is enabled.</small></div>}
           {selected && !detail && <p className="empty-detail"><LoaderCircle className="spin" size={16}/>Loading investigation…</p>}
           {selected && detail && messages.length === 0 && <p className="empty-detail">No messages yet. The investigation record is ready.</p>}

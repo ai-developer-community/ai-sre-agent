@@ -4,6 +4,7 @@
 import argparse
 import json
 import subprocess
+import time
 import urllib.request
 from pathlib import Path
 
@@ -20,8 +21,90 @@ def gcloud(*args, json_output=False):
     command = ["gcloud", *args, "--project", PROJECT, "--quiet"]
     if json_output:
         command += ["--format=json"]
-    result = subprocess.run(command, check=True, text=True, stdout=subprocess.PIPE)
+    for attempt in range(5):
+        result = subprocess.run(command, text=True, capture_output=True)
+        if result.returncode == 0:
+            break
+        # Newly created Google service accounts can lag in IAM's binding validator.
+        if (
+            "add-iam-policy-binding" in args
+            and "Service account" in result.stderr
+            and "does not exist" in result.stderr
+            and attempt < 4
+        ):
+            time.sleep(5 * (attempt + 1))
+            continue
+        print(result.stderr)
+        result.check_returncode()
     return json.loads(result.stdout) if json_output else result.stdout.strip()
+
+
+def build_identity():
+    """Keep build rights separate from both deployed runtime identities."""
+    bucket = f"run-sources-{PROJECT}-{REGION}"
+    buckets = gcloud("storage", "buckets", "list", json_output=True)
+    if not any(item.get("name") == bucket for item in buckets):
+        gcloud(
+            "storage",
+            "buckets",
+            "create",
+            "gs://" + bucket,
+            "--location",
+            REGION,
+            "--uniform-bucket-level-access",
+            "--public-access-prevention",
+        )
+    repositories = gcloud(
+        "artifacts", "repositories", "list", "--location", REGION, json_output=True
+    )
+    if not any(
+        item["name"].rsplit("/", 1)[-1] == "cloud-run-source-deploy" for item in repositories
+    ):
+        gcloud(
+            "artifacts",
+            "repositories",
+            "create",
+            "cloud-run-source-deploy",
+            "--location",
+            REGION,
+            "--repository-format=docker",
+        )
+    name = "sre-demo-builder"
+    email = f"{name}@{PROJECT}.iam.gserviceaccount.com"
+    accounts = gcloud("iam", "service-accounts", "list", json_output=True)
+    if not any(account["email"] == email for account in accounts):
+        gcloud("iam", "service-accounts", "create", name)
+    member = "serviceAccount:" + email
+    gcloud(
+        "storage",
+        "buckets",
+        "add-iam-policy-binding",
+        f"gs://run-sources-{PROJECT}-{REGION}",
+        "--member",
+        member,
+        "--role=roles/storage.objectViewer",
+    )
+    gcloud(
+        "artifacts",
+        "repositories",
+        "add-iam-policy-binding",
+        "cloud-run-source-deploy",
+        "--location",
+        REGION,
+        "--member",
+        member,
+        "--role=roles/artifactregistry.writer",
+    )
+    gcloud(
+        "projects",
+        "add-iam-policy-binding",
+        PROJECT,
+        "--member",
+        member,
+        "--role=roles/logging.logWriter",
+        "--condition=None",
+    )
+    return f"projects/{PROJECT}/serviceAccounts/{email}"
 
 
 def ensure_resource(list_args, create_args, resource_name):
@@ -248,7 +331,23 @@ def describe():
     return gcloud("run", "services", "describe", SERVICE, "--region", REGION, json_output=True)
 
 
+def deployed_revision(service, broken):
+    # When traffic is pinned, latestReady can still identify the old serving revision.
+    revision = service["status"]["latestCreatedRevisionName"]
+    detail = gcloud("run", "revisions", "describe", revision, "--region", REGION, json_output=True)
+    containers = detail["spec"]["containers"]
+    env = {item["name"]: item.get("value") for item in containers[0].get("env", [])}
+    if (
+        detail["metadata"]["labels"].get("serving.knative.dev/service") != SERVICE
+        or env.get("APP_VERSION") != ("v2-broken" if broken else "v1-healthy")
+        or env.get("FAIL_RATE") != ("1" if broken else "0")
+    ):
+        raise SystemExit("Created revision does not match the requested demo version")
+    return revision
+
+
 def deploy(broken=False):
+    builder = build_identity()
     if broken:
         if not STATE.exists():
             raise SystemExit(
@@ -277,13 +376,16 @@ def deploy(broken=False):
         SERVICE,
         "--source",
         str(ROOT / "shop"),
+        "--build-service-account",
+        builder,
         "--region",
         REGION,
         "--service-account",
         f"sre-demo-shop@{PROJECT}.iam.gserviceaccount.com",
-        "--allow-unauthenticated",
-        "--max-instances=1",
-        "--min-instances=0",
+        "--no-allow-unauthenticated",
+        "--invoker-iam-check",
+        "--max=1",
+        "--min=0",
         "--memory=256Mi",
         "--cpu=1",
         "--set-env-vars",
@@ -293,7 +395,7 @@ def deploy(broken=False):
     )
     # Explicitly move traffic after every take, even when a previous rollback pinned it.
     service = describe()
-    revision = service["status"]["latestReadyRevisionName"]
+    revision = deployed_revision(service, broken)
     gcloud(
         "run",
         "services",
@@ -307,7 +409,12 @@ def deploy(broken=False):
     url = service["status"]["url"]
     if not broken:
         request = urllib.request.Request(
-            url + "/checkout", data=b"{}", headers={"Content-Type": "application/json"}
+            url + "/checkout",
+            data=b"{}",
+            headers={
+                "Content-Type": "application/json",
+                "Authorization": "Bearer " + gcloud("auth", "print-identity-token"),
+            },
         )
         with urllib.request.urlopen(request, timeout=60) as response:
             result = json.load(response)

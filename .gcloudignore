@@ -1,0 +1,11 @@
+.git
+.env
+.env.*
+.venv
+.demo-state
+.impeccable
+**/__pycache__
+**/node_modules
+frontend/dist
+.pytest_cache
+.ruff_cache

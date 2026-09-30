@@ -37,30 +37,33 @@ def create_app(settings=None, store=None, runner=None, start_worker=True):
     csrf = secrets.token_urlsafe(32)
     worker = Worker(store, runner or AgentRunner(settings, store))
     subscriber = Subscriber(settings, store)
+    worker_enabled = start_worker and bool(settings.claude_model)
 
     @asynccontextmanager
     async def lifespan(app):
         store.initialize()
-        if start_worker:
+        if worker_enabled:
             worker.start()
         if settings.subscriber_enabled:
             subscriber.start()
         yield
         subscriber.stop()
-        if start_worker:
+        if worker_enabled:
             worker.stop()
         store.engine.dispose()
 
     app = FastAPI(title="On-call desk", lifespan=lifespan)
-    app.add_middleware(
-        TrustedHostMiddleware, allowed_hosts=["localhost", "127.0.0.1", "testserver"]
-    )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.allowed_hosts)
 
     @app.middleware("http")
-    async def local_security(request: Request, call_next):
+    async def request_security(request: Request, call_next):
         if request.method not in ("GET", "HEAD", "OPTIONS"):
             origin = request.headers.get("origin")
-            if origin and origin != str(request.base_url).rstrip("/"):
+            if (
+                origin
+                and origin != str(request.base_url).rstrip("/")
+                and origin not in settings.allowed_origins
+            ):
                 return JSONResponse(
                     {"detail": "Cross-origin requests are not allowed"}, status_code=403
                 )
@@ -74,6 +77,10 @@ def create_app(settings=None, store=None, runner=None, start_worker=True):
             "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'"
         )
         return response
+
+    @app.get("/healthz")
+    def health():
+        return {"status": "ok"}
 
     @app.get("/api/status")
     def status():
