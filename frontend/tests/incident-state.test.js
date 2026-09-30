@@ -12,6 +12,6 @@ test('recovery is green only after the executor verifies it', () => {
   assert.equal(incidentState({status:'active', action:{status:'verifying'}}), 'Verifying recovery');
   assert.equal(incidentState({status:'active', action:{status:'failed'}}), 'Needs attention');
   assert.equal(incidentState({status:'resolved', action:{status:'succeeded'}}), 'Recovery verified');
-  assert.equal(incidentState({status:'resolved'}), 'Closed');
+  assert.equal(incidentState({status:'resolved'}), 'Resolved');
   assert.equal(actionBusy({action:{status:'approved'}}), true);
 });

@@ -1,6 +1,6 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {Sidebar, ConsoleHeader, StatusBadge, Notice, Conversation, RollbackCard, Composer, ContextPanel} from './components.jsx';
+import {Sidebar, ConsoleHeader, StatusBadge, Notice, Conversation, RollbackCard, Composer, ContextPanel, ResolveIncident} from './components.jsx';
 import {Dashboard} from './dashboard.jsx';
 import {actionBusy} from './incident-state.js';
 import './style.css';
@@ -117,13 +117,14 @@ function App() {
       {status?.subscriber_error && <Notice>{status.subscriber_error}</Notice>}
       {home ? <Dashboard status={status} incidents={incidents} loaded={loaded} stale={Boolean(connectionError)} onSelect={choose} onNew={() => choose(null)}/> : <>
       <div className="page-heading"><h1>{selected ? incident?.title || 'Loading investigation…' : 'Investigate production'}</h1><StatusBadge incident={incident} configured={status?.configured}/></div>
+      {selected && incident?.status !== 'resolved' && <div className="resolution-control"><ResolveIncident key={selected} disabled={sending || running || unavailable} onClose={close}/></div>}
       <div className={`workspace ${!selected ? 'workspace-empty' : ''}`}>
         <section className="conversation" aria-label="Agent conversation">
           <Conversation selected={selected} detail={detail} running={running} onPrompt={prompt}/>
           <RollbackCard incident={incident} service={status?.service} disabled={disabled} onDecision={decideRollback}/>
           <Composer inputRef={composer} draft={draft} onChange={setDraft} onSend={send} disabled={disabled} sending={sending} running={running} closed={incident?.status === 'resolved'}/>
         </section>
-        {selected && <ContextPanel detail={detail} disabled={sending || running || unavailable} onClose={close}/>}
+        {selected && <ContextPanel detail={detail}/>}
       </div>
       </>}
     </main>

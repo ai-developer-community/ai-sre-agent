@@ -48,7 +48,7 @@ export function Sidebar({incidents, selected, status, connectionError, loaded, d
       <div className="section-label">Active incidents<span>{status?.incidents?.active ?? '…'}</span></div>
       {list(active)}
       {loaded && !active.length && <p className="sidebar-empty">No active incidents.</p>}
-      {closed.length > 0 && <section className="closed-history"><div className="section-label">Closed history <span>{closed.length}</span></div>{list(closed)}</section>}
+      {closed.length > 0 && <section className="closed-history"><div className="section-label">Resolved history <span>{closed.length}</span></div>{list(closed)}</section>}
     </nav>
     <div className="sidebar-bottom"><span className={`connection-dot ${status && !connectionError ? 'online' : ''}`}/>
       <span>{connectionError ? 'Connection lost' : status ? status.subscriber_enabled ? 'Listening for alerts' : 'Manual investigations' : 'Connecting…'}</span>
@@ -115,7 +115,7 @@ export function RollbackCard({incident, service, disabled, onDecision}) {
 export function Composer({inputRef, draft, onChange, onSend, disabled, sending, running, closed}) {
   return <form className="composer" onSubmit={onSend}>
     <label htmlFor="question" className="sr-only">Message the on-call agent</label>
-    <textarea id="question" ref={inputRef} value={draft} onChange={e => onChange(e.target.value)} placeholder={closed ? 'Incident closed. Start a new investigation.' : 'Ask a question or request a rollback…'} rows={2} disabled={disabled} onKeyDown={e => {if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {e.preventDefault(); onSend(e);}}}/>
+    <textarea id="question" ref={inputRef} value={draft} onChange={e => onChange(e.target.value)} placeholder={closed ? 'Incident resolved. Start a new investigation.' : 'Ask a question or request a rollback…'} rows={2} disabled={disabled} onKeyDown={e => {if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {e.preventDefault(); onSend(e);}}}/>
     <div className="composer-footer"><span>{running ? 'Waiting for the current task' : 'Enter to send'}</span><button type="submit" className="send-button" disabled={disabled || !draft.trim()} aria-label="Send message">{sending ? <LoaderCircle size={18} className="spin"/> : <ArrowUp size={19}/>}</button></div>
   </form>;
 }
@@ -128,17 +128,17 @@ function EvidenceItem({item}) {
   </div></div>;
 }
 
-function CloseIncident({disabled, onClose}) {
+export function ResolveIncident({disabled, onClose}) {
   const [open, setOpen] = useState(false);
   const [notes, setNotes] = useState('');
   async function submit(event) {event.preventDefault(); if (await onClose(notes.trim())) {setOpen(false); setNotes('');}}
-  if (!open) return <Button tone="quiet" disabled={disabled} onClick={() => setOpen(true)}>Close manually</Button>;
-  return <form className="close-form" onSubmit={submit}><label htmlFor="resolution">Resolution notes</label><textarea autoFocus id="resolution" value={notes} onChange={e => setNotes(e.target.value)} required rows={3} placeholder="What fixed it, and how did you check?"/>
-    <div><Button onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" tone="primary" disabled={disabled || !notes.trim()}>Close incident</Button></div>
+  if (!open) return <Button icon={Check} disabled={disabled} onClick={() => setOpen(true)}>Resolve incident</Button>;
+  return <form className="close-form" onSubmit={submit}><label htmlFor="resolution">Resolution notes</label><p className="resolution-help" id="resolution-help">Record why you are resolving this incident. This does not verify production health.</p><textarea autoFocus aria-describedby="resolution-help" id="resolution" value={notes} onChange={e => setNotes(e.target.value)} required rows={3} placeholder="What fixed it, and how did you check?"/>
+    <div><Button onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" tone="primary" disabled={disabled || !notes.trim()}>Resolve incident</Button></div>
   </form>;
 }
 
-export function ContextPanel({detail, disabled, onClose}) {
+export function ContextPanel({detail}) {
   const [panel, setPanel] = useState('evidence');
   const evidence = detail?.evidence || [], events = detail?.events || [];
   return <aside className="context-panel" aria-label="Investigation context">
@@ -148,6 +148,5 @@ export function ContextPanel({detail, disabled, onClose}) {
     </section> : <section className="context-section">
       {events.length ? <ol className="event-list">{events.map(item => <li key={item.id}><div><strong>{item.tool_name || (item.kind || 'Event').replaceAll('_', ' ')}</strong><time>{time(item.created_at)}</time><p>{item.content}</p>{item.data && Object.keys(item.data).length > 0 && <RawDetails content={JSON.stringify(item.data, null, 2)}/>}</div></li>)}</ol> : <p className="context-empty">No activity yet.</p>}
     </section>}</div>
-    {detail?.incident?.status !== 'resolved' && <div className="context-bottom"><CloseIncident key={detail?.incident?.id} disabled={disabled || !detail} onClose={onClose}/></div>}
   </aside>;
 }
