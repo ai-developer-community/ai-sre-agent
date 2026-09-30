@@ -30,7 +30,7 @@ This is a direct refinement of the existing console to the user's explicit light
 
 ## Incident attention and approved recovery
 
-The header shows active incidents, incidents needing attention, and investigations in progress. Completing triage leaves attention amber. A chat command prepares a named rollback proposal with explicit Approve and Deny buttons. Denial leaves traffic unchanged and the incident open. Execution shows Rolling back and Verifying recovery; only verified checkout probes produce the green Recovery verified result, with its observation time. Manually closed records remain labelled Closed. The existing light visual system is preserved.
+The dashboard shows active incidents, incidents needing attention, and investigations in progress. Completing triage leaves attention amber. A chat command prepares a named rollback proposal with explicit Approve and Deny buttons. Denial leaves traffic unchanged and the incident open. Execution shows Rolling back and Verifying recovery; only verified checkout probes produce the green Recovery verified result, with its observation time. Manually closed records remain labelled Closed. The existing light visual system is preserved.
 
 ## Shared React components
 
@@ -38,4 +38,4 @@ The header shows active incidents, incidents needing attention, and investigatio
 
 ## Visual polish
 
-Lucide outline icons identify overview navigation, incident rows, chat authors, evidence/activity and approval decisions. The homepage uses one status banner and compact attention/investigation counts; the global count strip appears only inside investigations. Unknown status uses a neutral surface. Incident rows and chat messages rely on spacing instead of repeated rules. The explicit Overview button returns home, and the breadcrumb identifies the current view. Status meaning, real observations and approval behavior are unchanged.
+Lucide outline icons identify overview navigation, incident rows, chat authors, evidence/activity and approval decisions. The homepage uses one status banner and compact attention/investigation counts; investigation headers omit the repeated count strip. Unknown status uses a neutral surface. Incident rows and chat messages rely on spacing instead of repeated rules. The explicit Overview button returns home, and the breadcrumb identifies the current view. Status meaning, real observations and approval behavior are unchanged.

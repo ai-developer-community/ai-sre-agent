@@ -56,17 +56,8 @@ export function Sidebar({incidents, selected, status, connectionError, loaded, d
   </aside>;
 }
 
-export function ConsoleHeader({status, stale, home}) {
-  const counts = status?.incidents;
-  return <>
-    <header className="topbar"><span className="header-location"><LayoutDashboard size={15} aria-hidden="true"/>Operations<span className="header-slash">/</span><strong>{home ? 'Overview' : 'Investigation'}</strong></span><span className="header-caption"><Bot size={15} aria-hidden="true"/>On-call agent</span></header>
-    {!home && <div className="incident-summary" aria-label="Incident summary" aria-live="polite">
-      <strong className={counts?.attention === 0 ? 'quiet' : ''}>{counts?.attention ?? '…'} {counts?.attention === 1 ? 'needs' : 'need'} attention</strong>
-      <span>{counts?.active ?? '…'} active</span>
-      {Boolean(counts?.investigating) && <span>{counts.investigating} investigating</span>}
-      {stale && <span>Last known state</span>}
-    </div>}
-  </>;
+export function ConsoleHeader({home}) {
+  return <header className="topbar"><span className="header-location"><LayoutDashboard size={15} aria-hidden="true"/>Operations<span className="header-slash">/</span><strong>{home ? 'Overview' : 'Investigation'}</strong></span><span className="header-caption"><Bot size={15} aria-hidden="true"/>On-call agent</span></header>;
 }
 
 function Message({message}) {

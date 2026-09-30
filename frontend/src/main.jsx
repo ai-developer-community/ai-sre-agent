@@ -110,7 +110,7 @@ function App() {
   return <div className="app-shell">
     <Sidebar home={home} incidents={incidents} selected={selected} status={status} connectionError={connectionError} loaded={loaded} disabled={sending} onSelect={choose} onHome={() => {choose(null); setHome(true);}} onNew={() => {choose(null); composer.current?.focus();}}/>
     <main>
-      <ConsoleHeader home={home} status={status} stale={Boolean(connectionError)}/>
+      <ConsoleHeader home={home}/>
       {(error || connectionError || detailError) && <Notice tone="error" onRetry={retry}>{error || connectionError || detailError}</Notice>}
       {status?.configured === false && <Notice>Agent model is not configured. Configure the backend model to start investigations.</Notice>}
       {status?.worker_error && <Notice>{status.worker_error}</Notice>}
