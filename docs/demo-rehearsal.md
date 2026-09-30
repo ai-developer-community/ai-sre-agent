@@ -72,7 +72,10 @@ explain that it is manual. Do not represent it as an automatically delivered ala
 
 A genuine Monitoring notification reached Pub/Sub and created incident 8 at
 21:41:10 UTC, approximately six minutes after the broken revision started serving.
-The worker began its investigation automatically. This arrived after the operator
+The worker completed its investigation at 21:41:44 UTC. It found 1,002 historical
+5xx responses, the 21:35 and 21:38 audit changes, and fresh successful checkout
+requests. It explicitly advised against another rollback because service was
+already recovering. This arrived after the operator
 had already restored service. For recording, keep the fault running until the
 incident appears, then recover. Do not promise instant alert delivery.
 
