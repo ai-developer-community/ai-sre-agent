@@ -6,7 +6,7 @@ One shop and one investigator, both in `personal-infrastructure-505708`, region 
 
 Cloud Monitoring sends shop alarms to the `sre-demo-alerts` Pub/Sub topic. The `sre-demo-console` Cloud Run service pulls notifications, persists them in Cloud SQL PostgreSQL, and runs one Claude investigation at a time. The React console is served by the same service. Minimum instances 1 and instance-based CPU allocation allow background work when no browser is open.
 
-The console requires Cloud Run IAM authentication. The demo shop also remains private because the organisation restricts public IAM principals. The operator authenticates requests with gcloud; no client-side cloud keys are used. A local proxy only provides browser access. Closing the proxy does not stop the cloud agent.
+The console uses Google IAP for browser sign-in, with access granted to `owain@gradientwork.com`. Open the Cloud Run HTTPS URL directly. The demo shop remains private and uses IAM authentication. No client-side cloud keys are used. Closing the browser does not stop the cloud agent.
 
 ## Deploy
 

@@ -48,6 +48,7 @@ def test_browser_access_grants_only_named_operator_and_iap_identity(monkeypatch)
     assert len(bindings) == 2
     assert "serviceAccount:service-1234@gcp-sa-iap.iam.gserviceaccount.com" in bindings[0]
     assert "sre-demo-console" in bindings[0]
+    assert bindings[1][:4] == ("beta", "iap", "web", "add-iam-policy-binding")
     assert "user:operator@example.com" in bindings[1]
     assert "sre-demo-console" in bindings[1]
     assert not any(

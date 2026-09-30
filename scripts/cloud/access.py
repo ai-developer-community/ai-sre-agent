@@ -11,7 +11,7 @@ from hosted import SERVICE as CONSOLE
 def browser_access(user):
     if not user or "@" not in user:
         raise SystemExit("Supply the approved operator email with --user")
-    gcloud("services", "enable", "iap.googleapis.com")
+    gcloud("services", "enable", "iap.googleapis.com", "cloudresourcemanager.googleapis.com")
     gcloud("beta", "services", "identity", "create", "--service", "iap.googleapis.com")
     number = gcloud("projects", "describe", PROJECT, "--format=value(projectNumber)")
     gcloud(
@@ -28,6 +28,7 @@ def browser_access(user):
     )
     gcloud("beta", "run", "services", "update", CONSOLE, "--region", REGION, "--iap")
     gcloud(
+        "beta",
         "iap",
         "web",
         "add-iam-policy-binding",

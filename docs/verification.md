@@ -34,3 +34,7 @@ Enable an available Claude model in Vertex Model Garden for this project, then r
 - Browser checks cover desktop and 390px mobile overview, incident navigation, plain context controls, consistent chat spacing, and an isolated approval/denial/recovery fixture. The fixture does not prove live cloud recovery.
 - Hosted Claude Opus 5.5 configuration and incident counts were verified through the authenticated console proxy.
 - Direct browser IAP access and runtime shop rollback permissions remain pending explicit access-change approval. The hosted executor remains disabled. A real bad-deployment/approved-rollback rehearsal is still required after enabling those permissions.
+
+## 2026-09-30 browser access enabled
+
+The operator explicitly approved console browser access. IAP is enabled; its service identity has console invoker access. The saved console-specific IAP policy grants `owain@gradientwork.com` the accessor role. An unauthenticated request returns HTTP 302 to `accounts.google.com`. The signed-in browser session has not yet been exercised. Runtime shop rollback permissions still require separate approval. The setup script uses beta IAP commands supported by the installed CLI and enables both required APIs. Two focused access tests and Ruff pass.
