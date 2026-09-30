@@ -28,7 +28,7 @@ Source deployment uses a separate `sre-demo-builder` identity with read access t
 
 ## Record
 
-Open `http://localhost:8080` after starting the proxy. Use the shop URL printed by `deploy-healthy` or saved in ignored `.demo-state`:
+Open the IAP-protected Cloud Run HTTPS URL and sign in with the authorized Google account. See [the rehearsal guide](demo-rehearsal.md) for tested scenarios and current readiness. Use the shop URL printed by `deploy-healthy` or saved in ignored `.demo-state`:
 
 ```sh
 python scripts/load.py SHOP_URL --authenticated --rps 5

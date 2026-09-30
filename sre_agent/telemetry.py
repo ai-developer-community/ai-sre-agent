@@ -31,9 +31,16 @@ def sanitize(value):
 
 
 def window(minutes):
-    minutes = max(5, min(60, int(minutes)))
+    minutes = max(5, min(1440, int(minutes)))
     end = datetime.now(timezone.utc)
     return end - timedelta(minutes=minutes), end
+
+
+def timestamp(value):
+    """Google client fields can be datetime objects or protobuf Timestamps."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    return value.ToDatetime(tzinfo=timezone.utc).isoformat()
 
 
 def logs_url(project, filter_, start, end):
@@ -71,7 +78,7 @@ class Telemetry:
         rows = [
             sanitize(
                 {
-                    "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+                    "timestamp": timestamp(e.timestamp) if e.timestamp else None,
                     "severity": e.severity,
                     "payload": e.payload,
                     "resource": e.resource.labels,
@@ -116,20 +123,31 @@ class Telemetry:
             )
             series = list(itertools.islice(pager, 101))
         points = []
+        counts_by_status = {}
+        counts_by_revision = {}
+        point_truncated = False
         for item in series[:100]:
-            for point in item.points[:60]:
+            point_truncated |= len(item.points) > 1441
+            for point in item.points[:1441]:
+                count = point.value.int64_value
+                status = item.metric.labels.get("response_code_class", "unknown")
+                revision = item.resource.labels.get("revision_name", "unknown")
+                counts_by_status[status] = counts_by_status.get(status, 0) + count
+                counts_by_revision[revision] = counts_by_revision.get(revision, 0) + count
                 points.append(
                     {
-                        "end": point.interval.end_time.isoformat(),
-                        "start": point.interval.start_time.isoformat(),
+                        "end": timestamp(point.interval.end_time),
+                        "start": timestamp(point.interval.start_time),
                         "requests": point.value.int64_value,
                         "labels": dict(item.metric.labels),
                         "revision": item.resource.labels.get("revision_name"),
                     }
                 )
-        point_truncated = len(points) > 100 or any(len(item.points) > 60 for item in series[:100])
-        points = sorted(points, key=lambda p: p["end"], reverse=True)[:100]
         latest = max((p["end"] for p in points), default=None)
+        complete = len(series) <= 100 and not point_truncated
+        total = sum(counts_by_status.values()) if complete and points else None
+        sample_truncated = len(points) > 100
+        points = sorted(points, key=lambda p: p["end"], reverse=True)[:100]
         return {
             "title": "Cloud Run request counts by response class and revision",
             "kind": "metrics",
@@ -141,11 +159,18 @@ class Telemetry:
                 "end": end.isoformat(),
                 "latest_sample": latest,
                 "points": points,
-                "possibly_truncated": len(series) > 100 or point_truncated,
+                "possibly_truncated": not complete or sample_truncated,
+                "summary_complete": complete and total is not None,
+                "total_requests": total,
+                "requests_by_response_class": counts_by_status if total is not None else {},
+                "requests_by_revision": counts_by_revision if total is not None else {},
                 "point_limit": 100,
                 "returned_points": len(points),
                 "note": "Service-wide delta counts, not checkout-only. Metrics can lag. "
-                "If truncated, do not compute a whole-window rate from this sample. "
+                "Use total_requests only when summary_complete is true; it includes all fetched "
+                "delta buckets whose end falls in the requested window. Recent buckets may lag. "
+                "The points list is a bounded sample: do not compute a whole-window rate "
+                "from it. "
                 "Open Metrics Explorer and paste the provided filter. "
                 "Missing or old samples are unknown, never healthy.",
             },
@@ -168,7 +193,7 @@ class Telemetry:
             rows.append(
                 {
                     "name": rev.name.rsplit("/", 1)[-1],
-                    "created_at": rev.create_time.isoformat(),
+                    "created_at": timestamp(rev.create_time),
                     "images": [c.image for c in rev.containers],
                     "environment_names": sorted({e.name for c in rev.containers for e in c.env}),
                     "note": "Environment values deliberately withheld. "
@@ -194,8 +219,10 @@ class Telemetry:
         s = self.settings
         filter_ = (
             f'protoPayload.serviceName="run.googleapis.com" '
-            f'AND protoPayload.resourceName="projects/{s.project_id}/locations/'
-            f'{s.region}/services/{s.shop_service}" '
+            f'AND (protoPayload.resourceName="projects/{s.project_id}/locations/'
+            f'{s.region}/services/{s.shop_service}" OR '
+            f'(protoPayload.resourceName="namespaces/{s.project_id}/services/{s.shop_service}" '
+            f'AND resource.labels.location="{s.region}")) '
             'AND (protoPayload.methodName:"UpdateService" OR '
             'protoPayload.methodName:"ReplaceService" OR '
             'protoPayload.methodName:"CreateService") '
@@ -213,7 +240,7 @@ class Telemetry:
             payload = entry.payload if isinstance(entry.payload, dict) else {}
             rows.append(
                 {
-                    "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
+                    "timestamp": timestamp(entry.timestamp) if entry.timestamp else None,
                     "method": payload.get("methodName"),
                     "resource": payload.get("resourceName"),
                     "principal": payload.get("authenticationInfo", {}).get("principalEmail"),
@@ -223,5 +250,12 @@ class Telemetry:
             "title": "Recent Cloud Run deployment audit events",
             "kind": "deployment",
             "url": logs_url(s.project_id, filter_, start, end),
-            "data": {"filter": filter_, "entries": rows, "limit": 20},
+            "data": {
+                "filter": filter_,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+                "entries": rows,
+                "limit": 20,
+                "possibly_truncated": len(rows) == 20,
+            },
         }
