@@ -35,3 +35,7 @@ The header shows active incidents, incidents needing attention, and investigatio
 ## Shared React components
 
 `components.jsx` owns Button, Notice, StatusBadge, Sidebar, ConsoleHeader, Conversation, RollbackCard, Composer and ContextPanel. `main.jsx` owns polling, selection and API mutations. Status labels come from `incident-state.js`. Evidence and Activity use simple selection buttons. Raw observations use View details buttons. Revision names are visible in approval cards. Chat messages use consistent spacing without divider lines. The decision card sits outside the scrolling message list so approval controls remain visible. The page avoids repeating the incident state in a banner, panel heading and footer.
+
+## Visual polish
+
+Lucide outline icons identify overview navigation, incident rows, chat authors, evidence/activity and approval decisions. The homepage uses one status banner and compact attention/investigation counts; the global count strip appears only inside investigations. Unknown status uses a neutral surface. Incident rows and chat messages rely on spacing instead of repeated rules. The explicit Overview button returns home, and the breadcrumb identifies the current view. Status meaning, real observations and approval behavior are unchanged.

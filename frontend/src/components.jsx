@@ -1,5 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
-import {Activity, ArrowUp, ArrowUpRight, Check, ChevronRight, FileSearch, LoaderCircle, Plus, RefreshCw, Undo2} from 'lucide-react';
+import {Activity, Bell, Bot, Clock3, LayoutDashboard, UserRound, X, ArrowUp, ArrowUpRight, Check, ChevronRight, FileSearch, LoaderCircle, Plus, RefreshCw, Undo2} from 'lucide-react';
 import {MessageContent, RawDetails, isCloudLink, isNotification} from './message-content.js';
 import {actionBusy, incidentState} from './incident-state.js';
 
@@ -36,12 +36,13 @@ function IncidentItem({item, selected, configured, disabled, onSelect}) {
   </button>;
 }
 
-export function Sidebar({incidents, selected, status, connectionError, loaded, disabled, onSelect, onNew, onHome}) {
+export function Sidebar({incidents, selected, status, connectionError, loaded, disabled, onSelect, onNew, onHome, home}) {
   const active = incidents.filter(item => item.status !== 'resolved');
   const closed = incidents.filter(item => item.status === 'resolved');
   const list = items => items.map(item => <IncidentItem key={item.id} item={item} selected={selected} configured={status?.configured} disabled={disabled} onSelect={onSelect}/>);
   return <aside className="sidebar">
     <button className="brand" onClick={onHome} aria-label="On-call console home"><Activity size={23}/>on-call</button>
+    <button className={`overview-link ${home ? 'selected' : ''}`} onClick={onHome} disabled={disabled} aria-current={home ? 'page' : undefined}><LayoutDashboard size={17} aria-hidden="true"/>Overview</button>
     <Button className="new-button" icon={Plus} onClick={onNew} disabled={disabled}>New investigation</Button>
     <nav className="incident-list" aria-label="Incidents">
       <div className="section-label">Active incidents<span>{status?.incidents?.active ?? '…'}</span></div>
@@ -55,23 +56,24 @@ export function Sidebar({incidents, selected, status, connectionError, loaded, d
   </aside>;
 }
 
-export function ConsoleHeader({status, stale}) {
+export function ConsoleHeader({status, stale, home}) {
   const counts = status?.incidents;
   return <>
-    <header className="topbar"><strong>Operations</strong><span className="header-caption">On-call agent</span></header>
-    <div className="incident-summary" aria-label="Incident summary" aria-live="polite">
+    <header className="topbar"><span className="header-location"><LayoutDashboard size={15} aria-hidden="true"/>Operations<span className="header-slash">/</span><strong>{home ? 'Overview' : 'Investigation'}</strong></span><span className="header-caption"><Bot size={15} aria-hidden="true"/>On-call agent</span></header>
+    {!home && <div className="incident-summary" aria-label="Incident summary" aria-live="polite">
       <strong className={counts?.attention === 0 ? 'quiet' : ''}>{counts?.attention ?? '…'} {counts?.attention === 1 ? 'needs' : 'need'} attention</strong>
       <span>{counts?.active ?? '…'} active</span>
       {Boolean(counts?.investigating) && <span>{counts.investigating} investigating</span>}
       {stale && <span>Last known state</span>}
-    </div>
+    </div>}
   </>;
 }
 
 function Message({message}) {
   const author = isNotification(message) ? 'Monitoring' : message.role === 'user' ? 'You' : message.role === 'assistant' ? 'On-call agent' : 'System';
+  const AuthorIcon = isNotification(message) ? Bell : message.role === 'user' ? UserRound : Bot;
   return <article className={`message ${message.role === 'user' ? 'user-message' : 'agent-message'}`}>
-    <div className="message-meta"><span>{author}</span><time dateTime={message.created_at}>{time(message.created_at)}</time></div>
+    <div className="message-meta"><span className="author-icon"><AuthorIcon size={15} aria-hidden="true"/></span><span>{author}</span><time dateTime={message.created_at}>{time(message.created_at)}</time></div>
     <MessageContent message={message}/>
   </article>;
 }
@@ -111,7 +113,7 @@ export function RollbackCard({incident, service, disabled, onDecision}) {
         <dl><dt>From</dt><dd>{action.plan.revision}</dd><dt>To</dt><dd>{action.plan.target}</dd><dt>Expires</dt><dd>{time(action.expires_at)}</dd></dl>
       </div>
       {expired && <p>Request a new rollback proposal to continue.</p>}
-      <div className="rollback-decisions"><Button tone="primary" disabled={disabled || expired} onClick={() => onDecision('approve')}>Approve</Button><Button disabled={disabled} onClick={() => onDecision('deny')}>Deny</Button><span>Checkout checks run after approval.</span></div>
+      <div className="rollback-decisions"><Button icon={Check} tone="primary" disabled={disabled || expired} onClick={() => onDecision('approve')}>Approve</Button><Button icon={X} disabled={disabled} onClick={() => onDecision('deny')}>Deny</Button><span>Checkout checks run after approval.</span></div>
     </section>;
   }
   if (action.status === 'succeeded') return <Notice tone="success"><strong>Recovery verified</strong><p>5 checkout checks passed at {time(action.result.verified_at)}. Monitoring may take longer to clear.</p><p><code>{action.result.revision}</code></p></Notice>;
@@ -149,7 +151,7 @@ export function ContextPanel({detail, disabled, onClose}) {
   const [panel, setPanel] = useState('evidence');
   const evidence = detail?.evidence || [], events = detail?.events || [];
   return <aside className="context-panel" aria-label="Investigation context">
-    <div className="context-tabs" aria-label="Context view">{['evidence', 'activity'].map(name => <button key={name} aria-pressed={panel === name} onClick={() => setPanel(name)}>{name === 'evidence' ? 'Evidence' : 'Activity'}</button>)}</div>
+    <div className="context-tabs" aria-label="Context view">{['evidence', 'activity'].map(name => <button key={name} aria-pressed={panel === name} onClick={() => setPanel(name)}>{name === 'evidence' ? <FileSearch size={14} aria-hidden="true"/> : <Clock3 size={14} aria-hidden="true"/>}{name === 'evidence' ? 'Evidence' : 'Activity'}</button>)}</div>
     <div className="context-content">{panel === 'evidence' ? <section className="context-section">
       {evidence.length ? evidence.map(item => <EvidenceItem key={item.id} item={item}/>) : <p className="context-empty">Evidence appears as the agent investigates.</p>}
     </section> : <section className="context-section">
