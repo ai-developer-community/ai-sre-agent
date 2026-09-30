@@ -66,7 +66,8 @@ class AgentRunner:
 
         @tool(
             "read_logs",
-            "Read bounded shop logs; errors_only=false checks other endpoints.",
+            "Read a bounded log sample over 5-1440 minutes; never count samples as traffic "
+            "totals. errors_only=false includes other endpoints.",
             {"minutes": int, "errors_only": bool},
         )
         async def read_logs(args):
@@ -79,7 +80,8 @@ class AgentRunner:
 
         @tool(
             "read_metrics",
-            "Read actual Cloud Run request delta counts and freshness.",
+            "Read Cloud Run request counts over 5-1440 minutes. Use total_requests only when "
+            "summary_complete is true; points are a bounded sample.",
             {"minutes": int},
         )
         async def read_metrics(args):
@@ -93,7 +95,7 @@ class AgentRunner:
 
         @tool(
             "read_deploy_events",
-            "Read deployment audit event timestamps, not secret configs.",
+            "Read deployment audit timestamps over 5-1440 minutes, not secret configs.",
             {"minutes": int},
         )
         async def read_deploy_events(args):

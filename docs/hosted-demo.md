@@ -1,12 +1,12 @@
 # Hosted video demo
 
-One shop and one investigator, both in `personal-infrastructure-505708`, region `europe-west2`. Client projects are not connected. The agent investigates through four fixed read tools and cannot roll back or deploy infrastructure.
+One shop and one investigator, both in `personal-infrastructure-505708`, region `europe-west2`. Client projects are not connected. The model investigates through four fixed read tools. The console also supports an explicitly approved, fixed-target rollback through a separate executor path. See [approved recovery](approved-recovery.md) for the recording flow and access boundaries.
 
 ## Topology
 
 Cloud Monitoring sends shop alarms to the `sre-demo-alerts` Pub/Sub topic. The `sre-demo-console` Cloud Run service pulls notifications, persists them in Cloud SQL PostgreSQL, and runs one Claude investigation at a time. The React console is served by the same service. Minimum instances 1 and instance-based CPU allocation allow background work when no browser is open.
 
-The console requires Cloud Run IAM authentication. The demo shop also remains private because the organisation restricts public IAM principals. The operator authenticates requests with gcloud; no client-side cloud keys are used. A local proxy only provides browser access. Closing the proxy does not stop the cloud agent.
+The console uses Google IAP for browser sign-in, with access granted to `owain@gradientwork.com`. Open the Cloud Run HTTPS URL directly. The demo shop remains private and uses IAM authentication. No client-side cloud keys are used. Closing the browser does not stop the cloud agent.
 
 ## Deploy
 
@@ -16,7 +16,7 @@ Authenticate the operator with gcloud, then run:
 python scripts/cloud/demo.py setup
 python scripts/cloud/demo.py deploy-healthy
 python scripts/cloud/hosted.py infrastructure
-python scripts/cloud/hosted.py deploy --model claude-sonnet-4-6
+python scripts/cloud/hosted.py deploy --model claude-opus-5-5
 python scripts/cloud/hosted.py proxy
 ```
 
@@ -28,7 +28,7 @@ Source deployment uses a separate `sre-demo-builder` identity with read access t
 
 ## Record
 
-Open `http://localhost:8080` after starting the proxy. Use the shop URL printed by `deploy-healthy` or saved in ignored `.demo-state`:
+Open the IAP-protected Cloud Run HTTPS URL and sign in with the authorized Google account. See [the rehearsal guide](demo-rehearsal.md) for tested scenarios and current readiness. Use the shop URL printed by `deploy-healthy` or saved in ignored `.demo-state`:
 
 ```sh
 python scripts/load.py SHOP_URL --authenticated --rps 5

@@ -25,3 +25,16 @@ Verified on 29 September 2026. Passing infrastructure checks do not establish a 
 The operator's Vertex probes returned HTTP 404 (model not found or no project access) for Sonnet 4.6 global/us-east5, Sonnet 4.5 global and Haiku 4.5 global. No successful model call has been demonstrated. The hosted console therefore queues real incoming alerts with its model worker paused, clearly showing the configuration gap.
 
 Enable an available Claude model in Vertex Model Garden for this project, then redeploy with its exact model ID. Complete SDK-to-MCP execution, a supported diagnosis and post-rollback model verification remain unverified. SDK unit tests use test doubles and do not prove model accuracy. The earlier cloud approval block was superseded by the user's explicit deployment request; these resources are now real and incur ongoing charges.
+
+## 2026-09-30 approved recovery and overview
+
+- 42 Python tests pass against isolated PostgreSQL schemas, including approval, denial, stale revision, expiry, restart and concurrent notification cases.
+- 6 frontend tests pass; production build, Ruff and diff whitespace checks pass.
+- Independent review found no remaining actionable issues after concurrency fixes.
+- Browser checks cover desktop and 390px mobile overview, incident navigation, plain context controls, consistent chat spacing, and an isolated approval/denial/recovery fixture. The fixture does not prove live cloud recovery.
+- Hosted Claude Opus 5.5 configuration and incident counts were verified through the authenticated console proxy.
+- Direct browser IAP access and runtime shop rollback permissions remain pending explicit access-change approval. The hosted executor remains disabled. A real bad-deployment/approved-rollback rehearsal is still required after enabling those permissions.
+
+## 2026-09-30 browser access enabled
+
+The operator explicitly approved console browser access. IAP is enabled; its service identity has console invoker access. The saved console-specific IAP policy grants `owain@gradientwork.com` the accessor role. An unauthenticated request returns HTTP 302 to `accounts.google.com`. The signed-in browser session has not yet been exercised. Runtime shop rollback permissions still require separate approval. The setup script uses beta IAP commands supported by the installed CLI and enables both required APIs. Two focused access tests and Ruff pass.

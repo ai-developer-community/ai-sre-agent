@@ -21,4 +21,5 @@ class Settings(BaseSettings):
     subscriber_enabled: bool = False
     pubsub_subscription: str = "sre-demo-agent"
     run_timeout_seconds: int = Field(default=240, ge=10, le=600)
+    rollback_revision: str = ""
     max_turns: int = Field(default=15, ge=1, le=30)

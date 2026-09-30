@@ -144,7 +144,9 @@ def infrastructure():
     print("Demo Postgres and database secret ready. No secret values printed.")
 
 
-def deploy(model, vertex_region):
+def deploy(model, vertex_region, rollback_revision=""):
+    if rollback_revision and not rollback_revision.startswith("sre-demo-shop-"):
+        raise SystemExit("Rollback revision must belong to the demo shop")
     builder = build_identity()
     number = gcloud("projects", "describe", PROJECT, "--format=value(projectNumber)")
     hostname = f"{SERVICE}-{number}.{REGION}.run.app"
@@ -155,6 +157,7 @@ def deploy(model, vertex_region):
         "AGENT_PROVIDER": "vertex",
         "CLAUDE_MODEL": model,
         "VERTEX_REGION": vertex_region,
+        "ROLLBACK_REVISION": rollback_revision,
         "SUBSCRIBER_ENABLED": "true",
         "PUBSUB_SUBSCRIPTION": "sre-demo-agent",
         "ALLOWED_HOSTS": json.dumps([hostname, "localhost", "127.0.0.1"]),
@@ -239,11 +242,12 @@ def main():
     parser.add_argument("action", choices=["infrastructure", "deploy", "proxy", "status"])
     parser.add_argument("--model", default="", help="Exact enabled Vertex model ID")
     parser.add_argument("--vertex-region", default="global")
+    parser.add_argument("--rollback-revision", default="")
     args = parser.parse_args()
     if args.action == "infrastructure":
         infrastructure()
     elif args.action == "deploy":
-        deploy(args.model, args.vertex_region)
+        deploy(args.model, args.vertex_region, args.rollback_revision)
     elif args.action == "proxy":
         subprocess.run(
             [

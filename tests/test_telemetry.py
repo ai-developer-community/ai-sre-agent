@@ -26,7 +26,7 @@ def test_redacts_structured_and_text_secrets_and_bounds_output():
 
 def test_queries_clamp_time_window():
     start, end = window(10000)
-    assert (end - start).total_seconds() == 3600
+    assert (end - start).total_seconds() == 86400
     start, end = window(-50)
     assert (end - start).total_seconds() == 300
 
@@ -72,6 +72,10 @@ def test_deployment_audit_excludes_request_secrets(monkeypatch):
     result = Telemetry(Settings(_env_file=None)).deploy_logs()
     assert "very-private" not in str(result)
     assert result["data"]["entries"][0]["method"] == "UpdateService"
+    filter_ = client.list_entries.call_args.kwargs["filter_"]
+    assert "namespaces/personal-infrastructure-505708/services/sre-demo-shop" in filter_
+    assert "projects/personal-infrastructure-505708/locations/europe-west2/services/" in filter_
+    assert 'AND resource.labels.location="europe-west2"' in filter_
 
 
 def test_metrics_explicitly_report_truncation_after_more_than_100_points(monkeypatch):
@@ -134,3 +138,68 @@ def test_revision_request_matches_installed_google_client_signature(monkeypatch)
     assert request.parent == "projects/test-project/locations/europe-west2/services/test-shop"
     assert request.page_size == 20
     assert kwargs["timeout"] == 30
+
+
+def test_metrics_support_protobuf_timestamps_and_full_window_summary(monkeypatch):
+    from datetime import timedelta
+
+    from google.protobuf.timestamp_pb2 import Timestamp
+
+    end = datetime.now(timezone.utc)
+
+    def proto(value):
+        result = Timestamp()
+        result.FromDatetime(value)
+        return result
+
+    series = SimpleNamespace(
+        metric=SimpleNamespace(labels={"response_code_class": "2xx"}),
+        resource=SimpleNamespace(labels={"revision_name": "healthy"}),
+        points=[
+            SimpleNamespace(
+                interval=SimpleNamespace(
+                    end_time=proto(end - timedelta(minutes=i)),
+                    start_time=proto(end - timedelta(minutes=i + 1)),
+                ),
+                value=SimpleNamespace(int64_value=5),
+            )
+            for i in range(120)
+        ],
+    )
+    client = MagicMock()
+    client.__enter__.return_value = client
+    client.list_time_series.return_value = [series]
+    monkeypatch.setattr("sre_agent.telemetry.monitoring_v3.MetricServiceClient", lambda: client)
+    data = Telemetry(Settings(_env_file=None)).metrics(1440)["data"]
+    assert data["summary_complete"] is True
+    assert data["total_requests"] == 600
+    assert data["requests_by_response_class"] == {"2xx": 600}
+    assert data["requests_by_revision"] == {"healthy": 600}
+    assert data["possibly_truncated"] is True
+    assert len(data["points"]) == 100
+    request = client.list_time_series.call_args.kwargs["request"]
+    assert (
+        request["interval"]["end_time"] - request["interval"]["start_time"]
+    ).total_seconds() == 86400
+
+
+def test_metrics_with_truncated_series_do_not_claim_total(monkeypatch):
+    client = MagicMock()
+    client.__enter__.return_value = client
+    now = datetime.now(timezone.utc)
+    item = SimpleNamespace(
+        metric=SimpleNamespace(labels={}),
+        resource=SimpleNamespace(labels={}),
+        points=[
+            SimpleNamespace(
+                interval=SimpleNamespace(start_time=now, end_time=now),
+                value=SimpleNamespace(int64_value=1),
+            )
+        ],
+    )
+    client.list_time_series.return_value = [item] * 101
+    monkeypatch.setattr("sre_agent.telemetry.monitoring_v3.MetricServiceClient", lambda: client)
+    data = Telemetry(Settings(_env_file=None)).metrics(1440)["data"]
+    assert data["summary_complete"] is False
+    assert data["total_requests"] is None
+    assert data["requests_by_response_class"] == {}

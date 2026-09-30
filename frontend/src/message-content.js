@@ -27,13 +27,19 @@ const markdownComponents = {
 
 export function MessageContent({message}) {
   if (isNotification(message)) {
-    return h('details', {className: 'notification'},
-      h('summary', null, 'View Monitoring notification'),
-      h('pre', null, message.content.slice(notificationPrefix.length)));
+    return h(RawDetails, {label: 'Monitoring notification', content: message.content.slice(notificationPrefix.length)});
   }
   if (message.role === 'assistant') {
     return h('div', {className: 'message-content markdown'},
       h(Markdown, {skipHtml: true, components: markdownComponents}, message.content));
   }
   return h('div', {className: 'message-content'}, message.content);
+}
+
+export function RawDetails({content, label = 'details'}) {
+  const [open, setOpen] = React.useState(false);
+  const id = React.useId();
+  return h('div', {className: 'raw-details'},
+    h('button', {type: 'button', className: 'text-button', 'aria-expanded': open, 'aria-controls': id, onClick: () => setOpen(!open)}, `${open ? 'Hide' : 'View'} ${label}`),
+    h('pre', {id, hidden: !open}, content));
 }
