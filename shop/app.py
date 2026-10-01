@@ -47,6 +47,10 @@ def create_app():
             ),
             flush=True,
         )
+        if response.is_json and request.path == "/checkout":
+            payload = response.get_json()
+            payload["revision"] = os.getenv("K_REVISION", "local")
+            response.set_data(json.dumps(payload))
         return response
 
     @app.get("/health")

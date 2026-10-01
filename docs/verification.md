@@ -38,3 +38,35 @@ Enable an available Claude model in Vertex Model Garden for this project, then r
 ## 2026-09-30 browser access enabled
 
 The operator explicitly approved console browser access. IAP is enabled; its service identity has console invoker access. The saved console-specific IAP policy grants `owain@gradientwork.com` the accessor role. An unauthenticated request returns HTTP 302 to `accounts.google.com`. The signed-in browser session has not yet been exercised. Runtime shop rollback permissions still require separate approval. The setup script uses beta IAP commands supported by the installed CLI and enables both required APIs. Two focused access tests and Ruff pass.
+
+## 2026-10-01 chat deployment watches
+
+Cloud deployment and a real deployment-watch rehearsal remain **unverified**:
+the operator's gcloud session requires reauthentication. Private checkout probes
+also need the hosted identity to have demo-shop invoker access. Earlier shop
+revisions do not return the new revision field; redeploy the updated shop before
+recording this feature. This work does not enable the hosted rollback executor.
+
+- **75 Python tests pass**, using real PostgreSQL with isolated schemas. The
+  watch tests cover persistent restart, concurrent retries, an independent
+  background thread, cancellation during an in-flight check, revision matching,
+  checkout and latency regressions, metric freshness, missing access, truncation
+  and prevention of conflicting rollback approval.
+- **7 frontend tests**, Ruff, production build and diff whitespace checks pass.
+- Independent review approved the implementation and final display-payload fix.
+- A real browser exercised the local application with an isolated fake-cloud
+  fixture: start from chat, waiting for a revision, monitoring after deployment,
+  persistence across navigation/reload, dashboard count, Stop watching, and
+  three failed checkouts queuing investigation. The final failed card shows
+  HTTP status and latency; chat shows a concise system notification while the
+  queued model request retains the full evidence. Browser DOM evidence was
+  captured in `/tmp/deployment-watch-browser-evidence.txt` during verification.
+  These checks do not establish live Cloud Run or Claude behavior. The new
+  component was visually checked at desktop size; mobile layout and browser
+  console errors were not independently verified for this change.
+- Recovery remains separately requested and approved. A passed watch does not
+  close an incident or claim that all application endpoints are healthy.
+
+The full video outline and three Mermaid diagrams are in
+[video-outline.md](video-outline.md); the operator command and recording
+requirements are in [deployment-watch.md](deployment-watch.md).

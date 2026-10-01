@@ -15,3 +15,11 @@ test('recovery is green only after the executor verifies it', () => {
   assert.equal(incidentState({status:'resolved'}), 'Resolved');
   assert.equal(actionBusy({action:{status:'approved'}}), true);
 });
+
+test('deployment watch progress and outcome do not imply verified recovery', () => {
+  assert.equal(incidentState({status:'active', watch:{status:'waiting'}}), 'Waiting for deployment');
+  assert.equal(incidentState({status:'active', watch:{status:'watching'}}), 'Monitoring deployment');
+  assert.equal(incidentState({status:'active', watch:{status:'passed'}}), 'Deployment checks passed');
+  assert.equal(incidentState({status:'active', watch:{status:'inconclusive'}}), 'Needs attention');
+  assert.equal(incidentState({status:'active', run_status:'queued', watch:{status:'failed'}}), 'Queued for investigation');
+});

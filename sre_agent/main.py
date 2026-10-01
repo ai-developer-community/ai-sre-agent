@@ -1,5 +1,6 @@
 import logging
 import secrets
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
@@ -9,6 +10,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from sre_agent.config import ROOT, Settings
+from sre_agent.deployment_watch import DeploymentCloud, DeploymentWatches, watch_request
 from sre_agent.rollback import RollbackCloud, Rollbacks, rollback_request
 from sre_agent.runner import AgentRunner
 from sre_agent.store import Store
@@ -21,6 +23,7 @@ logging.basicConfig(level=logging.INFO)
 class NewIncident(BaseModel):
     title: str = Field(default="Production investigation", min_length=1, max_length=200)
     question: str = Field(min_length=1, max_length=4000)
+    request_id: str = Field(default_factory=lambda: str(uuid.uuid4()), min_length=8, max_length=100)
 
 
 class ChatMessage(BaseModel):
@@ -32,24 +35,36 @@ class CloseIncident(BaseModel):
     notes: str = Field(min_length=1, max_length=2000)
 
 
-def create_app(settings=None, store=None, runner=None, start_worker=True, rollback_cloud=None):
+def create_app(
+    settings=None,
+    store=None,
+    runner=None,
+    start_worker=True,
+    rollback_cloud=None,
+    deployment_cloud=None,
+):
     settings = settings or Settings()
     store = store or Store(settings.database_url)
     csrf = secrets.token_urlsafe(32)
     rollbacks = Rollbacks(store, rollback_cloud or RollbackCloud(settings))
     worker = Worker(store, runner or AgentRunner(settings, store), rollbacks)
+    watches = DeploymentWatches(store, deployment_cloud or DeploymentCloud(settings))
     subscriber = Subscriber(settings, store)
     worker_enabled = start_worker and bool(settings.claude_model)
 
     @asynccontextmanager
     async def lifespan(app):
         store.initialize()
+        if start_worker:
+            watches.start()
         if worker_enabled:
             worker.start()
         if settings.subscriber_enabled:
             subscriber.start()
         yield
         subscriber.stop()
+        if start_worker:
+            watches.stop()
         if worker_enabled:
             worker.stop()
         store.engine.dispose()
@@ -98,6 +113,8 @@ def create_app(settings=None, store=None, runner=None, start_worker=True, rollba
             "subscriber_error": subscriber.error,
             "worker_busy": worker.busy,
             "worker_error": worker.error,
+            "watcher_error": watches.error,
+            "deployment_watch_enabled": start_worker,
             "csrf_token": csrf,
             "configured": bool(settings.claude_model),
             "mode": "approved-rollback" if settings.rollback_revision else "read-only",
@@ -119,13 +136,31 @@ def create_app(settings=None, store=None, runner=None, start_worker=True, rollba
     def new_incident(body: NewIncident):
         if not body.question.strip():
             raise HTTPException(422, "Enter a question")
-        return {"id": store.create_incident(body.title, body.question)}
+        try:
+            command = watch_request(body.question)
+            if command:
+                if command.get("stop"):
+                    raise ValueError("Open the conversation containing the watch to stop it.")
+                watch = watches.create(None, body.request_id, body.question, command)
+                return {"id": watch["incident_id"], "watch": watch}
+            return {
+                "id": store.create_incident(body.title, body.question, request_id=body.request_id)
+            }
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
 
     @app.post("/api/incidents/{incident_id}/messages", status_code=202)
     def message(incident_id: int, body: ChatMessage):
         if not body.content.strip():
             raise HTTPException(422, "Enter a message")
         try:
+            command = watch_request(body.content)
+            if command:
+                if command.get("stop"):
+                    return watches.cancel(incident_id, body.content)
+                return {
+                    "watch": watches.create(incident_id, body.request_id, body.content, command)
+                }
             if rollback_request(body.content):
                 if not settings.rollback_revision:
                     raise ValueError("Rollback is not configured for this service.")
@@ -157,6 +192,15 @@ def create_app(settings=None, store=None, runner=None, start_worker=True, rollba
             return {"status": "denied"}
         except KeyError:
             raise HTTPException(404, "Rollback proposal not found") from None
+        except ValueError as exc:
+            raise HTTPException(409, str(exc)) from None
+
+    @app.post("/api/incidents/{incident_id}/watch/stop")
+    def stop_watch(incident_id: int):
+        try:
+            return watches.cancel(incident_id)
+        except KeyError:
+            raise HTTPException(404, "Incident not found") from None
         except ValueError as exc:
             raise HTTPException(409, str(exc)) from None
 

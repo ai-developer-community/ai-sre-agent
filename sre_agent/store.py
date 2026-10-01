@@ -94,11 +94,14 @@ class Store:
         self.engine = create_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=0)
 
     def initialize(self):
+        from sre_agent.deployment_watch import watch_table  # noqa: F401
         from sre_agent.rollback import actions  # noqa: F401
 
         metadata.create_all(self.engine)
 
-    def _enqueue(self, conn, incident_id, content, request_id):
+    def _enqueue(
+        self, conn, incident_id, content, request_id, *, display_content=None, message_role="user"
+    ):
         existing = (
             conn.execute(select(runs).where(runs.c.request_id == request_id)).mappings().first()
         )
@@ -107,7 +110,13 @@ class Store:
                 raise ValueError("Request ID was already used for another message")
             return existing["id"]
         run_id = str(uuid.uuid4())
-        conn.execute(insert(messages).values(incident_id=incident_id, role="user", content=content))
+        conn.execute(
+            insert(messages).values(
+                incident_id=incident_id,
+                role=message_role,
+                content=content if display_content is None else display_content,
+            )
+        )
         conn.execute(
             insert(runs).values(
                 id=run_id, incident_id=incident_id, request_id=request_id, question=content
@@ -200,6 +209,8 @@ class Store:
         return dict(row) if row else None
 
     def summary(self):
+        from sre_agent.deployment_watch import ACTIVE as WATCHING
+        from sre_agent.deployment_watch import watch_table
         from sre_agent.rollback import ACTIVE, actions
 
         queued = (
@@ -210,6 +221,11 @@ class Store:
         changing = (
             select(actions.c.id)
             .where(actions.c.incident_id == incidents.c.id, actions.c.status.in_(ACTIVE))
+            .exists()
+        )
+        watching = (
+            select(watch_table.c.id)
+            .where(watch_table.c.incident_id == incidents.c.id, watch_table.c.status.in_(WATCHING))
             .exists()
         )
         with self.engine.connect() as conn:
@@ -223,8 +239,9 @@ class Store:
 
             return {
                 "active": count(),
-                "attention": count(~queued, ~changing),
+                "attention": count(~queued, ~changing, ~watching),
                 "investigating": count(queued, ~changing),
+                "watching": count(watching),
             }
 
     def list_incidents(self):
@@ -242,6 +259,9 @@ class Store:
                     .limit(1)
                 ).scalar()
                 item["action"] = self.action(conn, row["id"])
+                from sre_agent.deployment_watch import latest_watch
+
+                item["watch"] = latest_watch(conn, row["id"])
                 result.append(item)
             return result
 
@@ -262,6 +282,9 @@ class Store:
                 .limit(1)
             ).scalar()
             item["action"] = self.action(conn, incident_id)
+            from sre_agent.deployment_watch import latest_watch
+
+            item["watch"] = latest_watch(conn, incident_id)
             result = {"incident": item}
             for name, table in [("messages", messages), ("events", events), ("evidence", evidence)]:
                 rows = list(
@@ -365,6 +388,9 @@ class Store:
             if active:
                 raise ValueError("Wait for the investigation to finish before closing.")
             self.require_no_action(conn, incident_id)
+            from sre_agent.deployment_watch import require_no_watch
+
+            require_no_watch(conn, incident_id)
             if row["status"] == "resolved":
                 return
             conn.execute(

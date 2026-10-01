@@ -94,6 +94,7 @@ def test_api_proposal_approval_verification_and_repeat_are_safe(store, monkeypat
             "active": 0,
             "attention": 0,
             "investigating": 0,
+            "watching": 0,
         }
         # Closed incidents cannot start more mutations, even with a previous action ID.
         assert client.post(approve, headers=token).status_code == 409

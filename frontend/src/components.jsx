@@ -1,7 +1,7 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {Activity, Bell, Bot, Clock3, LayoutDashboard, UserRound, X, ArrowUp, ArrowUpRight, Check, ChevronRight, FileSearch, LoaderCircle, Plus, RefreshCw, Undo2} from 'lucide-react';
 import {MessageContent, RawDetails, isCloudLink, isNotification} from './message-content.js';
-import {actionBusy, incidentState} from './incident-state.js';
+import {actionBusy, incidentState, watchActive} from './incident-state.js';
 
 export const time = value => value ? new Date(value).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}) : '';
 const date = value => value ? new Date(value).toLocaleDateString([], {month: 'short', day: 'numeric'}) : '';
@@ -81,7 +81,7 @@ export function Conversation({selected, detail, running, onPrompt}) {
     const el = e.currentTarget; follow.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
   }} aria-live="polite" aria-relevant="additions text">
     {!selected && <div className="welcome"><h2>What needs a closer look?</h2><p>New alerts arrive here automatically. You can also ask the agent to investigate.</p>
-      <div className="starter-list">{['How is production doing?', 'What changed before the failures?'].map(prompt => <button key={prompt} onClick={() => onPrompt(prompt)}>{prompt}<ArrowUpRight size={15}/></button>)}</div>
+      <div className="starter-list">{['How is production doing?', 'Watch the next deployment for five minutes.'].map(prompt => <button key={prompt} onClick={() => onPrompt(prompt)}>{prompt}<ArrowUpRight size={15}/></button>)}</div>
     </div>}
     {selected && !detail && <p className="empty-detail"><LoaderCircle className="spin" size={16}/>Loading investigation…</p>}
     {messages.map(message => <Message key={message.id} message={message}/>)}
@@ -90,6 +90,22 @@ export function Conversation({selected, detail, running, onPrompt}) {
     </div>}
     {detail?.incident?.run_status === 'failed' && <Notice tone="error">Investigation stopped. Check activity, then send a follow-up to retry.</Notice>}
   </div>;
+}
+
+export function DeploymentWatchCard({incident, disabled, onStop}) {
+  const watch = incident?.watch;
+  if (!watch) return null;
+  const active = watchActive(incident);
+  const labels = {waiting: 'Waiting for deployment', watching: 'Monitoring deployment', passed: 'Deployment checks passed', failed: 'Deployment checks failed', inconclusive: 'Deployment checks inconclusive', cancelled: 'Deployment watch stopped'};
+  const last = watch.observations?.at(-1);
+  return <section className="rollback-proposal deployment-watch" aria-label="Deployment watch">
+    <div className="action-title"><Clock3 size={17} aria-hidden="true"/><h3>{labels[watch.status] || 'Deployment watch'}</h3></div>
+    <p>{watch.status === 'waiting' ? `Waiting for a serving revision change until ${time(watch.deadline)}.` : active ? `Checking checkout for ${watch.duration_minutes} ${watch.duration_minutes === 1 ? 'minute' : 'minutes'}, until ${time(watch.deadline)}.` : watch.result}</p>
+    {watch.gap && <p>{watch.gap}</p>}
+    {watch.revision && <p><code>{watch.revision}</code></p>}
+    {last && <p className="watch-check">Last check {time(last.at)} · {last.unavailable ? 'Unavailable' : !last.verified ? 'Revision unverified' : `HTTP ${last.status} · ${last.latency_ms} ms`}</p>}
+    {active && <div className="rollback-decisions"><Button icon={X} disabled={disabled} onClick={onStop}>Stop watching</Button><span>Runs in the background. Recovery requires approval.</span></div>}
+  </section>;
 }
 
 export function RollbackCard({incident, service, disabled, onDecision}) {
@@ -115,7 +131,7 @@ export function RollbackCard({incident, service, disabled, onDecision}) {
 export function Composer({inputRef, draft, onChange, onSend, disabled, sending, running, closed}) {
   return <form className="composer" onSubmit={onSend}>
     <label htmlFor="question" className="sr-only">Message the on-call agent</label>
-    <textarea id="question" ref={inputRef} value={draft} onChange={e => onChange(e.target.value)} placeholder={closed ? 'Incident resolved. Start a new investigation.' : 'Ask a question or request a rollback…'} rows={2} disabled={disabled} onKeyDown={e => {if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {e.preventDefault(); onSend(e);}}}/>
+    <textarea id="question" ref={inputRef} value={draft} onChange={e => onChange(e.target.value)} placeholder={closed ? 'Incident resolved. Start a new investigation.' : 'Ask a question, watch a deployment or request a rollback…'} rows={2} disabled={disabled} onKeyDown={e => {if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {e.preventDefault(); onSend(e);}}}/>
     <div className="composer-footer"><span>{running ? 'Waiting for the current task' : 'Enter to send'}</span><button type="submit" className="send-button" disabled={disabled || !draft.trim()} aria-label="Send message">{sending ? <LoaderCircle size={18} className="spin"/> : <ArrowUp size={19}/>}</button></div>
   </form>;
 }

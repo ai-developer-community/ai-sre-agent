@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-The on-call desk investigates one demo Cloud Run shop and supports operator-approved recovery. PostgreSQL is the source of truth for incidents, investigation runs, messages, evidence, events, lessons and rollback proposals. The Python backend serves the React console and runs a serial background worker.
+The on-call desk investigates one demo Cloud Run shop and supports operator-approved recovery. PostgreSQL is the source of truth for incidents, investigation runs, messages, evidence, events, lessons, deployment watches and rollback proposals. The Python backend serves the React console and runs a serial background worker.
 
 The key boundary is that the model has only four read tools. A production change must originate from an explicit operator request and approval, pass the deterministic executor's checks, and produce fresh checkout evidence before the incident becomes resolved. Model output and log text cannot approve a mutation.
 
@@ -20,13 +20,18 @@ flowchart LR
     Worker --> Agent[Claude Agent SDK and four read tools]
     Agent --> Monitoring
     Agent --> Revisions[Cloud Run metadata]
+    Operator --> Watch[Chat-scheduled deployment watcher]
+    Watch <--> DB
+    Watch --> Monitoring
+    Watch --> Shop
+    Watch -->|Failed watch queues investigation| Worker
     Worker --> Executor[Approved rollback executor]
     Executor --> Shop
 ```
 
 ### Dependency hierarchy
 
-`main.py` composes settings, store, subscriber, investigator and rollback executor. The subscriber only persists validated notifications. The worker claims persisted work and calls either the investigator or executor. Both write observations through the store. Google clients live in `telemetry.py` and `rollback.py`.
+`main.py` composes settings, store, subscriber, investigator, deployment watcher and rollback executor. The subscriber only persists validated notifications. The worker claims persisted work and calls either the investigator or executor. Both write observations through the store. Google clients live in `telemetry.py`, `deployment_watch.py` and `rollback.py`. The watcher has separate leadership and timing from the serial investigator.
 
 The SDK cannot call the executor. Only the API approval route advances a saved proposal into executable work. The service identity is shared by these components; the tool boundary is enforced in application code, not separate process credentials.
 
@@ -37,6 +42,35 @@ Monitoring notifications must match the configured project, shop service and reg
 A PostgreSQL session advisory lock selects one worker. Standby revisions retry leadership during rollout. Each investigation gets a fresh SDK client, isolated temporary settings directory, stored conversation context and up to ten human-recorded lessons. Four in-process MCP tools read bounded logs, metrics, revisions and deployment events. All other tools, including shell access, are denied. Telemetry query windows support up to 24 hours; request totals cover the fetched delta buckets separately from the bounded point sample, and model runs to 240 seconds, 15 turns and a two-dollar SDK budget by default.
 
 An unset model leaves investigations queued. Model and tool failures stay visible and cannot establish health. Queued work survives restart; interrupted investigations require a human retry. Database-session loss can briefly overlap read-only work, so investigation execution is not exactly once.
+
+## Chat-scheduled deployment watches
+
+Explicit operator chat commands create a row in `deployment_watches`; the model
+cannot schedule work through its read tools. The API records the reference serving
+revision, bounded duration and request ID transactionally. One active watch is
+allowed for the configured service. Current watches start immediately; next-deploy
+watches wait up to 15 minutes for a different explicit revision serving 100%.
+
+A separate thread and advisory lock perform timed checks while the model worker
+is busy. Each check verifies serving state before and after an authenticated fake
+checkout request and checks its response revision, outcome and latency. The shop
+adds `K_REVISION` to checkout responses. Requests with unknown revision or missing
+invocation access cannot establish success. Metrics are scoped to the watched
+revision and post-start buckets. Read results and timestamps are persisted.
+
+Three consecutive checkout failures or requests over 1,000 ms, or at least three
+observed post-start metric 5xx counts, fail the watch and enqueue an investigation.
+Unknown observations reset failure streaks. A pass requires a clean sampled
+checkout window, at least three probes, fresh complete final metrics and no
+recorded access/interruption gaps. All other completed windows are inconclusive.
+A revision change ends a running watch inconclusively. No watch outcome resolves
+an incident or authorizes an infrastructure change.
+
+Cancellation and finalization lock the incident and watch row. Cancelled reads
+cannot reactivate work. Same-conversation rollback and closure require an active
+watch to be stopped. Restarted checks retain deadlines; gaps over 45 seconds
+prevent passing. Checkout invocation on the demo shop is a runtime permission
+separate from infrastructure mutation. See [deployment watches](docs/deployment-watch.md).
 
 ## Approved rollback
 
@@ -62,12 +96,13 @@ The investigator identity has telemetry viewer access in the demo project, model
 
 Cloud Run hosts one non-root backend process with CPU allocated outside requests and a minimum/maximum instance setting of one. Rollouts can briefly overlap revisions. Cloud SQL PostgreSQL 17 stores durable state through a mounted SQL socket; its URL comes from Secret Manager. A separate builder identity owns source/image build access. The fake shop performs no real payments.
 
-Schema initialization creates missing tables, including additive `rollback_actions`; it does not migrate existing columns. Short transactions never span model or Cloud Run calls. One dedicated connection holds worker leadership. Cloud SQL and the minimum Cloud Run instance incur ongoing charges even with the browser closed.
+Schema initialization creates missing tables, including additive `rollback_actions` and `deployment_watches`; it does not migrate existing columns. Short transactions never span model or Cloud Run calls. One dedicated connection holds worker leadership. Cloud SQL and the minimum Cloud Run instance incur ongoing charges even with the browser closed.
 
 ## Source map and verification
 
 - [API](sre_agent/main.py), [store](sre_agent/store.py), [worker](sre_agent/worker.py): intake, state, counts, approval and lifecycle.
 - [Investigator](sre_agent/runner.py), [telemetry](sre_agent/telemetry.py): model boundaries and evidence.
+- [Deployment watcher](sre_agent/deployment_watch.py): chat commands, durable timing, checkout probes, revision identity, cancellation and bounded outcomes.
 - [Rollback executor](sre_agent/rollback.py): proposal, expiry, traffic update and checkout verification.
 - [Hosted deployment](scripts/cloud/hosted.py), [access setup](scripts/cloud/access.py), [demo scripts](scripts/cloud/demo.py): cloud configuration and operator setup.
 - [Recovery runbook](docs/approved-recovery.md): recording sequence, IAM limitations and failure handling.

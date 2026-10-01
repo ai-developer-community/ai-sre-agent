@@ -1,8 +1,8 @@
 import React, {useEffect, useRef, useState} from 'react';
 import {createRoot} from 'react-dom/client';
-import {Sidebar, ConsoleHeader, StatusBadge, Notice, Conversation, RollbackCard, Composer, ContextPanel, ResolveIncident} from './components.jsx';
+import {Sidebar, ConsoleHeader, StatusBadge, Notice, Conversation, RollbackCard, Composer, ContextPanel, ResolveIncident, DeploymentWatchCard} from './components.jsx';
 import {Dashboard} from './dashboard.jsx';
-import {actionBusy} from './incident-state.js';
+import {actionBusy, watchActive} from './incident-state.js';
 import './style.css';
 
 const busy = run => ['queued', 'running'].includes(run);
@@ -87,7 +87,8 @@ function App() {
         if (requestRef.current?.content !== content || requestRef.current?.id !== selection) requestRef.current = {content, id: selection, key: crypto.randomUUID()};
         await api(`/api/incidents/${selection}/messages`, {content, request_id: requestRef.current.key});
       } else {
-        const result = await api('/api/incidents', {question: content}); setSelected(result.id);
+        if (requestRef.current?.content !== content || requestRef.current?.id !== null) requestRef.current = {content, id: null, key: crypto.randomUUID()};
+        const result = await api('/api/incidents', {question: content, request_id: requestRef.current.key}); setSelected(result.id);
       }
       if (selectedRef.current === selection) setDraft('');
       requestRef.current = null; setRefresh(n => n + 1);
@@ -98,6 +99,12 @@ function App() {
     if (disabled) return;
     setSending(true); setError('');
     try {await api(`/api/incidents/${selected}/actions/${incident.action.id}/${decision}`, {}); setRefresh(n => n + 1);}
+    catch (e) {setError(e.message);} finally {setSending(false);}
+  }
+
+  async function stopWatch() {
+    setSending(true); setError('');
+    try {await api(`/api/incidents/${selected}/watch/stop`, {}); setRefresh(n => n + 1);}
     catch (e) {setError(e.message);} finally {setSending(false);}
   }
 
@@ -114,14 +121,16 @@ function App() {
       {(error || connectionError || detailError) && <Notice tone="error" onRetry={retry}>{error || connectionError || detailError}</Notice>}
       {status?.configured === false && <Notice>Agent model is not configured. Configure the backend model to start investigations.</Notice>}
       {status?.worker_error && <Notice>{status.worker_error}</Notice>}
+      {status?.watcher_error && <Notice>{status.watcher_error}</Notice>}
       {status?.subscriber_error && <Notice>{status.subscriber_error}</Notice>}
       {home ? <Dashboard status={status} incidents={incidents} loaded={loaded} stale={Boolean(connectionError)} onSelect={choose} onNew={() => choose(null)}/> : <>
       <div className="page-heading"><h1>{selected ? incident?.title || 'Loading investigation…' : 'Investigate production'}</h1><StatusBadge incident={incident} configured={status?.configured}/></div>
-      {selected && incident?.status !== 'resolved' && <div className="resolution-control"><ResolveIncident key={selected} disabled={sending || running || unavailable} onClose={close}/></div>}
+      {selected && incident?.status !== 'resolved' && <div className="resolution-control"><ResolveIncident key={selected} disabled={sending || running || unavailable || watchActive(incident)} onClose={close}/></div>}
       <div className={`workspace ${!selected ? 'workspace-empty' : ''}`}>
         <section className="conversation" aria-label="Agent conversation">
           <Conversation selected={selected} detail={detail} running={running} onPrompt={prompt}/>
-          <RollbackCard incident={incident} service={status?.service} disabled={disabled} onDecision={decideRollback}/>
+          <DeploymentWatchCard incident={incident} disabled={sending || unavailable} onStop={stopWatch}/>
+          <RollbackCard incident={incident} service={status?.service} disabled={disabled || watchActive(incident)} onDecision={decideRollback}/>
           <Composer inputRef={composer} draft={draft} onChange={setDraft} onSend={send} disabled={disabled} sending={sending} running={running} closed={incident?.status === 'resolved'}/>
         </section>
         {selected && <ContextPanel detail={detail}/>}

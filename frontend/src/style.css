@@ -240,3 +240,6 @@ dd { margin: 0; overflow-wrap: anywhere; }
 .resolution-control { display: flex; justify-content: flex-end; margin: 0 0 16px; flex-shrink: 0; }
 .resolution-control .close-form { width: min(100%, 440px); }
 .resolution-help { margin: 0 0 12px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+
+.deployment-watch { border-color: var(--line, #e5e7eb); }
+.watch-check { color: var(--muted); font-size: 12px; }
