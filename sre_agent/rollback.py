@@ -188,6 +188,9 @@ class Rollbacks:
             raise KeyError(incident_id)
         if row["status"] == "resolved":
             raise ValueError("This incident is closed.")
+        from sre_agent.deployment_watch import require_no_watch
+
+        require_no_watch(conn, incident_id)
         if conn.execute(
             select(runs.c.id).where(
                 runs.c.incident_id == incident_id, runs.c.status.in_(["queued", "running"])

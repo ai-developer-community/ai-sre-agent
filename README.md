@@ -2,11 +2,11 @@
 
 A minimal Claude agent investigates a real Cloud Run shop. Cloud Monitoring detects failures, Pub/Sub delivers alerts, and the agent reads logs, request metrics and deployment history. A web console shows its evidence and lets you challenge the diagnosis. PostgreSQL retains incidents and chat across restarts.
 
-**The agent investigates; the operator approves recovery.** An optional deterministic rollback executor prepares a saved revision change, requires an explicit Approve decision, and closes the incident only after five successful checkout checks. It is disabled until a healthy revision and demo-scoped permissions are configured. See [approved recovery](docs/approved-recovery.md). There is no autonomous rollback, Slack integration or alert correlation.
+**The agent investigates; the operator approves recovery.** An optional deterministic rollback executor prepares a saved revision change, requires an explicit Approve decision, and closes the incident only after five successful checkout checks. It is disabled until a healthy revision and demo-scoped permissions are configured. See [approved recovery](docs/approved-recovery.md). Chat can also schedule a persistent deployment watch. See [deployment monitoring](docs/deployment-watch.md). There is no autonomous rollback, Slack integration or alert correlation.
 
 ## Hosted video version
 
-Follow [hosted deployment and recording](docs/hosted-demo.md). Cloud Run hosts the agent and console; Cloud SQL stores incidents. The cloud agent runs independently of your laptop. Use `python scripts/cloud/hosted.py proxy` to open its private console at [localhost:8080](http://localhost:8080). Both the shop and console require IAM authentication. Only the demo app is monitored; no client projects are connected.
+Follow [hosted deployment and recording](docs/hosted-demo.md). Cloud Run hosts the agent and console; Cloud SQL stores incidents. The cloud agent runs independently of your laptop. Open the [IAP-protected console](https://sre-demo-console-1004219842855.europe-west2.run.app) and sign in with the authorized Google account. The shop uses IAM authentication. Only the demo app is monitored; no client projects are connected.
 
 ## Run locally
 
@@ -63,7 +63,7 @@ Database tests create and drop uniquely named test schemas in the local database
 
 ## Video and reference material
 
-[Insights from the on-call kit](docs/oncall-kit-insights.md) maps the reference's ideas to this implementation and gives a short demonstration outline. [Architecture](ARCHITECTURE.md) describes the code as built. This is an independent demo inspired by the kit, not an installation of its Slack workflow.
+[Full video outline and diagrams](docs/video-outline.md) covers the story, recording sequence and claims. [Insights from the on-call kit](docs/oncall-kit-insights.md) maps the reference's ideas to this implementation and gives a short demonstration outline. [Architecture](ARCHITECTURE.md) describes the code as built. This is an independent demo inspired by the kit, not an installation of its Slack workflow.
 
 The kit is a reference implementation. Its lessons about evidence, explicit uncertainty and human ownership transfer well; a controlled shop failure is not a production-readiness evaluation.
 
