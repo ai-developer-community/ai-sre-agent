@@ -43,3 +43,7 @@ Lucide outline icons identify overview navigation, incident rows, chat authors, 
 ## Manual resolution
 
 Open incidents show a Resolve incident button above the conversation. It expands an inline notes form and persists the existing human resolution event and lesson. Manual resolution uses a neutral Resolved label; Recovery verified remains exclusive to successful checkout verification. Running investigations and recovery actions block resolution.
+
+## Console refinement
+
+The stylesheet uses shared color, type, radius and layout tokens rather than stacked overrides. Navigation, conversation authors, evidence lists and activity times share consistent spacing and icon treatment. Watch and rollback proposals use shared action-card components. The dashboard scrolls within the desktop workspace; the conversation also scrolls when stacked action cards exceed the available height, keeping decisions and the composer reachable. Mobile retains normal page scrolling and larger control targets. Browser theme color matches the light console.
