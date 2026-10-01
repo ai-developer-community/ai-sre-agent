@@ -1,0 +1,172 @@
+{
+  "displayName": "AI SRE \u00b7 Golden signals",
+  "mosaicLayout": {
+    "columns": 24,
+    "tiles": [
+      {
+        "xPos": 0,
+        "yPos": 0,
+        "width": 24,
+        "height": 2,
+        "widget": {
+          "title": "Golden signals",
+          "text": {
+            "format": "MARKDOWN",
+            "content": "**Production behavior, by revision.** Look for successful requests getting slower after a release, even when errors stay low. The 1-second line is our demo limit, not a production SLO. CPU is one saturation signal; low CPU does not rule out other bottlenecks. Metrics can lag and chart gaps are missing data, not proof of health."
+          }
+        }
+      },
+      {
+        "xPos": 0,
+        "yPos": 2,
+        "width": 12,
+        "height": 6,
+        "widget": {
+          "title": "Latency \u00b7 successful requests, p95",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.project_id=\"personal-infrastructure-505708\" AND resource.labels.service_name=\"sre-demo-shop\" AND resource.labels.location=\"europe-west2\" AND metric.type=\"run.googleapis.com/request_latencies\" AND metric.labels.response_code_class=\"2xx\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "minAlignmentPeriod": "60s",
+                "legendTemplate": "${resource.labels.revision_name}"
+              }
+            ],
+            "yAxis": {
+              "label": "Latency (ms)",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR"
+            },
+            "thresholds": [
+              {
+                "label": "Demo latency limit: 1 second",
+                "value": 1000,
+                "targetAxis": "Y1"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "xPos": 12,
+        "yPos": 2,
+        "width": 12,
+        "height": 6,
+        "widget": {
+          "title": "Traffic \u00b7 requests per second",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.project_id=\"personal-infrastructure-505708\" AND resource.labels.service_name=\"sre-demo-shop\" AND resource.labels.location=\"europe-west2\" AND metric.type=\"run.googleapis.com/request_count\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_RATE",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": [
+                        "resource.labels.revision_name"
+                      ]
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "minAlignmentPeriod": "60s",
+                "legendTemplate": "${resource.labels.revision_name}"
+              }
+            ],
+            "yAxis": {
+              "label": "Requests / second",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR"
+            }
+          }
+        }
+      },
+      {
+        "xPos": 0,
+        "yPos": 8,
+        "width": 12,
+        "height": 6,
+        "widget": {
+          "title": "Errors \u00b7 server failures per second",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.project_id=\"personal-infrastructure-505708\" AND resource.labels.service_name=\"sre-demo-shop\" AND resource.labels.location=\"europe-west2\" AND metric.type=\"run.googleapis.com/request_count\" AND metric.labels.response_code_class=\"5xx\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_RATE",
+                      "crossSeriesReducer": "REDUCE_SUM",
+                      "groupByFields": [
+                        "resource.labels.revision_name"
+                      ]
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "minAlignmentPeriod": "60s",
+                "legendTemplate": "${resource.labels.revision_name}"
+              }
+            ],
+            "yAxis": {
+              "label": "5xx / second",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR"
+            }
+          }
+        }
+      },
+      {
+        "xPos": 12,
+        "yPos": 8,
+        "width": 12,
+        "height": 6,
+        "widget": {
+          "title": "Saturation \u00b7 CPU utilization, p95",
+          "xyChart": {
+            "dataSets": [
+              {
+                "timeSeriesQuery": {
+                  "timeSeriesFilter": {
+                    "filter": "resource.type=\"cloud_run_revision\" AND resource.labels.project_id=\"personal-infrastructure-505708\" AND resource.labels.service_name=\"sre-demo-shop\" AND resource.labels.location=\"europe-west2\" AND metric.type=\"run.googleapis.com/container/cpu/utilizations\"",
+                    "aggregation": {
+                      "alignmentPeriod": "60s",
+                      "perSeriesAligner": "ALIGN_PERCENTILE_95"
+                    }
+                  }
+                },
+                "plotType": "LINE",
+                "minAlignmentPeriod": "60s",
+                "legendTemplate": "${resource.labels.revision_name}"
+              }
+            ],
+            "yAxis": {
+              "label": "CPU utilization",
+              "scale": "LINEAR"
+            },
+            "chartOptions": {
+              "mode": "COLOR"
+            }
+          }
+        }
+      }
+    ]
+  }
+}
