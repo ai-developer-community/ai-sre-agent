@@ -8,8 +8,8 @@ from test_backend import store as store
 
 from sre_agent.config import Settings
 from sre_agent.main import create_app
-from sre_agent.rollback import RollbackCloud, Rollbacks, actions, rollback_request
-from sre_agent.store import now
+from sre_agent.rollback import RollbackCloud, Rollbacks, rollback_request
+from sre_agent.store import actions, now
 from sre_agent.worker import Worker
 
 

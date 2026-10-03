@@ -88,15 +88,74 @@ lessons = Table(
     Column("created_at", DateTime(timezone=True), default=now, nullable=False),
 )
 
+ROLLBACK_ACTIVE = ("approved", "running", "verifying")
+actions = Table(
+    "rollback_actions",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("incident_id", ForeignKey("incidents.id"), nullable=False),
+    Column("request_id", String(100), nullable=False, unique=True),
+    Column("status", String(20), nullable=False),
+    Column("plan", JSON, nullable=False),
+    Column("result", JSON),
+    Column("actor", Text),
+    Column("created_at", DateTime(timezone=True), nullable=False, default=now),
+    Column("expires_at", DateTime(timezone=True), nullable=False),
+)
+
+WATCH_ACTIVE = ("waiting", "watching")
+watch_table = Table(
+    "deployment_watches",
+    metadata,
+    Column("id", String(36), primary_key=True),
+    Column("incident_id", ForeignKey("incidents.id"), nullable=False),
+    Column("request_id", String(100), unique=True, nullable=False),
+    Column("command", Text, nullable=False),
+    Column("status", String(20), nullable=False),
+    Column("baseline", JSON, nullable=False),
+    Column("revision", String(300)),
+    Column("duration_minutes", Integer, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("started_at", DateTime(timezone=True)),
+    Column("deadline", DateTime(timezone=True), nullable=False),
+    Column("next_check_at", DateTime(timezone=True), nullable=False),
+    Column("last_check_at", DateTime(timezone=True)),
+    Column("observations", JSON, nullable=False),
+    Column("consecutive_failures", Integer, nullable=False, default=0),
+    Column("consecutive_slow", Integer, nullable=False, default=0),
+    Column("gap", String(300)),
+    Column("result", Text),
+)
+
+
+def latest_watch(conn, incident_id):
+    row = (
+        conn.execute(
+            select(watch_table)
+            .where(watch_table.c.incident_id == incident_id)
+            .order_by(watch_table.c.created_at.desc())
+            .limit(1)
+        )
+        .mappings()
+        .first()
+    )
+    return dict(row) if row else None
+
+
+def require_no_watch(conn, incident_id):
+    if conn.execute(
+        select(watch_table.c.id).where(
+            watch_table.c.incident_id == incident_id, watch_table.c.status.in_(WATCH_ACTIVE)
+        )
+    ).first():
+        raise ValueError("Stop the deployment watch before resolving or rolling back.")
+
 
 class Store:
     def __init__(self, url):
         self.engine = create_engine(url, pool_pre_ping=True, pool_size=5, max_overflow=0)
 
     def initialize(self):
-        from sre_agent.deployment_watch import watch_table  # noqa: F401
-        from sre_agent.rollback import actions  # noqa: F401
-
         metadata.create_all(self.engine)
 
     def _enqueue(
@@ -194,8 +253,6 @@ class Store:
             return self._enqueue(conn, incident_id, content, request_id)
 
     def action(self, conn, incident_id):
-        from sre_agent.rollback import actions
-
         row = (
             conn.execute(
                 select(actions)
@@ -209,10 +266,6 @@ class Store:
         return dict(row) if row else None
 
     def summary(self):
-        from sre_agent.deployment_watch import ACTIVE as WATCHING
-        from sre_agent.deployment_watch import watch_table
-        from sre_agent.rollback import ACTIVE, actions
-
         queued = (
             select(runs.c.id)
             .where(runs.c.incident_id == incidents.c.id, runs.c.status.in_(["queued", "running"]))
@@ -220,12 +273,15 @@ class Store:
         )
         changing = (
             select(actions.c.id)
-            .where(actions.c.incident_id == incidents.c.id, actions.c.status.in_(ACTIVE))
+            .where(actions.c.incident_id == incidents.c.id, actions.c.status.in_(ROLLBACK_ACTIVE))
             .exists()
         )
         watching = (
             select(watch_table.c.id)
-            .where(watch_table.c.incident_id == incidents.c.id, watch_table.c.status.in_(WATCHING))
+            .where(
+                watch_table.c.incident_id == incidents.c.id,
+                watch_table.c.status.in_(WATCH_ACTIVE),
+            )
             .exists()
         )
         with self.engine.connect() as conn:
@@ -259,8 +315,6 @@ class Store:
                     .limit(1)
                 ).scalar()
                 item["action"] = self.action(conn, row["id"])
-                from sre_agent.deployment_watch import latest_watch
-
                 item["watch"] = latest_watch(conn, row["id"])
                 result.append(item)
             return result
@@ -282,8 +336,6 @@ class Store:
                 .limit(1)
             ).scalar()
             item["action"] = self.action(conn, incident_id)
-            from sre_agent.deployment_watch import latest_watch
-
             item["watch"] = latest_watch(conn, incident_id)
             result = {"incident": item}
             for name, table in [("messages", messages), ("events", events), ("evidence", evidence)]:
@@ -388,8 +440,6 @@ class Store:
             if active:
                 raise ValueError("Wait for the investigation to finish before closing.")
             self.require_no_action(conn, incident_id)
-            from sre_agent.deployment_watch import require_no_watch
-
             require_no_watch(conn, incident_id)
             if row["status"] == "resolved":
                 return
@@ -411,11 +461,9 @@ class Store:
             )
 
     def require_no_action(self, conn, incident_id):
-        from sre_agent.rollback import ACTIVE, actions
-
         if conn.execute(
             select(actions.c.id).where(
-                actions.c.incident_id == incident_id, actions.c.status.in_(ACTIVE)
+                actions.c.incident_id == incident_id, actions.c.status.in_(ROLLBACK_ACTIVE)
             )
         ).first():
             raise ValueError("Wait for rollback and recovery verification to finish.")

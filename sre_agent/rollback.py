@@ -1,6 +1,7 @@
 """Human-approved, single-service rollback. The model cannot call this executor."""
 
 import json
+import logging
 import re
 import time
 import uuid
@@ -10,35 +11,20 @@ from urllib.request import Request, urlopen
 from google.auth.transport.requests import Request as AuthRequest
 from google.cloud import run_v2
 from google.oauth2.id_token import fetch_id_token
-from sqlalchemy import (
-    JSON,
-    Column,
-    DateTime,
-    ForeignKey,
-    String,
-    Table,
-    Text,
-    insert,
-    select,
-    update,
+from sqlalchemy import insert, select, update
+
+from sre_agent.store import (
+    ROLLBACK_ACTIVE,
+    actions,
+    events,
+    incidents,
+    messages,
+    now,
+    require_no_watch,
+    runs,
 )
 
-from sre_agent.store import events, incidents, messages, metadata, now, runs
-
-ACTIVE = ("approved", "running", "verifying")
-actions = Table(
-    "rollback_actions",
-    metadata,
-    Column("id", String(36), primary_key=True),
-    Column("incident_id", ForeignKey("incidents.id"), nullable=False),
-    Column("request_id", String(100), nullable=False, unique=True),
-    Column("status", String(20), nullable=False),
-    Column("plan", JSON, nullable=False),
-    Column("result", JSON),
-    Column("actor", Text),
-    Column("created_at", DateTime(timezone=True), nullable=False, default=now),
-    Column("expires_at", DateTime(timezone=True), nullable=False),
-)
+logger = logging.getLogger(__name__)
 
 
 def rollback_request(content):
@@ -188,8 +174,6 @@ class Rollbacks:
             raise KeyError(incident_id)
         if row["status"] == "resolved":
             raise ValueError("This incident is closed.")
-        from sre_agent.deployment_watch import require_no_watch
-
         require_no_watch(conn, incident_id)
         if conn.execute(
             select(runs.c.id).where(
@@ -226,13 +210,13 @@ class Rollbacks:
                 conn.execute(
                     select(actions).where(
                         actions.c.incident_id == incident_id,
-                        actions.c.status.in_(["pending", *ACTIVE]),
+                        actions.c.status.in_(["pending", *ROLLBACK_ACTIVE]),
                     )
                 )
                 .mappings()
                 .first()
             )
-            if existing and existing["status"] in ACTIVE:
+            if existing and existing["status"] in ROLLBACK_ACTIVE:
                 raise ValueError("Rollback is already in progress.")
             conn.execute(
                 update(actions)
@@ -276,11 +260,13 @@ class Rollbacks:
             )
             if not row:
                 raise KeyError(action_id)
-            if row["status"] in (*ACTIVE, "succeeded"):
+            if row["status"] in (*ROLLBACK_ACTIVE, "succeeded"):
                 return  # Retried approval never repeats an executed change.
             if row["status"] != "pending" or row["expires_at"] <= now():
                 raise ValueError("This proposal expired or was replaced. Request a new rollback.")
-            if conn.execute(select(actions.c.id).where(actions.c.status.in_(ACTIVE))).first():
+            if conn.execute(
+                select(actions.c.id).where(actions.c.status.in_(ROLLBACK_ACTIVE))
+            ).first():
                 raise ValueError("Another rollback is in progress. Wait for its verification.")
             conn.execute(
                 update(actions)
@@ -401,9 +387,7 @@ class Rollbacks:
             )
         except Exception as exc:
             # Provider responses can contain sensitive details; keep full errors in server logs.
-            import logging
-
-            logging.getLogger(__name__).exception("Rollback failed")
+            logger.exception("Rollback failed")
             result = {
                 "error": str(exc)
                 if isinstance(exc, ValueError)
