@@ -13,25 +13,20 @@ from urllib.request import Request, urlopen
 from google.auth.transport.requests import Request as AuthRequest
 from google.cloud import run_v2
 from google.oauth2.id_token import fetch_id_token
-from sqlalchemy import (
-    JSON,
-    Column,
-    DateTime,
-    ForeignKey,
-    Integer,
-    String,
-    Table,
-    Text,
-    insert,
-    select,
-    update,
-)
+from sqlalchemy import insert, select, update
 
-from sre_agent.store import events, incidents, messages, metadata, now
+from sre_agent.store import (
+    WATCH_ACTIVE,
+    events,
+    incidents,
+    latest_watch,
+    messages,
+    now,
+    watch_table,
+)
 from sre_agent.telemetry import Telemetry, sanitize
 
 logger = logging.getLogger(__name__)
-ACTIVE = ("waiting", "watching")
 INTERVAL = 10
 WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "ten": 10, "fifteen": 15}
 COMMAND = re.compile(
@@ -41,28 +36,6 @@ COMMAND = re.compile(
     re.I,
 )
 STOP = re.compile(r"(?:please\s+)?(?:stop|cancel)\s+(?:the\s+)?(?:deployment\s+)?watch[.!]?", re.I)
-watch_table = Table(
-    "deployment_watches",
-    metadata,
-    Column("id", String(36), primary_key=True),
-    Column("incident_id", ForeignKey("incidents.id"), nullable=False),
-    Column("request_id", String(100), unique=True, nullable=False),
-    Column("command", Text, nullable=False),
-    Column("status", String(20), nullable=False),
-    Column("baseline", JSON, nullable=False),
-    Column("revision", String(300)),
-    Column("duration_minutes", Integer, nullable=False),
-    Column("created_at", DateTime(timezone=True), nullable=False),
-    Column("started_at", DateTime(timezone=True)),
-    Column("deadline", DateTime(timezone=True), nullable=False),
-    Column("next_check_at", DateTime(timezone=True), nullable=False),
-    Column("last_check_at", DateTime(timezone=True)),
-    Column("observations", JSON, nullable=False),
-    Column("consecutive_failures", Integer, nullable=False, default=0),
-    Column("consecutive_slow", Integer, nullable=False, default=0),
-    Column("gap", String(300)),
-    Column("result", Text),
-)
 
 
 def watch_request(content):
@@ -89,29 +62,6 @@ def watch_request(content):
     if not 1 <= minutes <= 15:
         raise ValueError("Choose a watch duration between 1 and 15 minutes.")
     return {"next_deployment": "next" in (match[1] or "").lower(), "minutes": minutes}
-
-
-def latest_watch(conn, incident_id):
-    row = (
-        conn.execute(
-            select(watch_table)
-            .where(watch_table.c.incident_id == incident_id)
-            .order_by(watch_table.c.created_at.desc())
-            .limit(1)
-        )
-        .mappings()
-        .first()
-    )
-    return dict(row) if row else None
-
-
-def require_no_watch(conn, incident_id):
-    if conn.execute(
-        select(watch_table.c.id).where(
-            watch_table.c.incident_id == incident_id, watch_table.c.status.in_(ACTIVE)
-        )
-    ).first():
-        raise ValueError("Stop the deployment watch before resolving or rolling back.")
 
 
 class DeploymentCloud:
@@ -237,7 +187,7 @@ class DeploymentWatches:
                 raise ValueError("This incident is closed. Start a new investigation.")
             self.store.require_no_action(conn, incident_id)
             if conn.execute(
-                select(watch_table.c.id).where(watch_table.c.status.in_(ACTIVE))
+                select(watch_table.c.id).where(watch_table.c.status.in_(WATCH_ACTIVE))
             ).first():
                 raise ValueError("A deployment watch is already active for this application.")
             row = dict(
@@ -287,7 +237,7 @@ class DeploymentWatches:
             if not incident:
                 raise KeyError(incident_id)
             row = latest_watch(conn, incident_id)
-            if not row or row["status"] not in ACTIVE:
+            if not row or row["status"] not in WATCH_ACTIVE:
                 raise ValueError("No deployment watch is active in this conversation.")
             conn.execute(
                 update(watch_table)
@@ -339,7 +289,10 @@ class DeploymentWatches:
             row = (
                 conn.execute(
                     select(watch_table)
-                    .where(watch_table.c.status.in_(ACTIVE), watch_table.c.next_check_at <= moment)
+                    .where(
+                        watch_table.c.status.in_(WATCH_ACTIVE),
+                        watch_table.c.next_check_at <= moment,
+                    )
                     .order_by(watch_table.c.created_at)
                     .limit(1)
                 )
@@ -377,7 +330,7 @@ class DeploymentWatches:
                 .mappings()
                 .first()
             )
-            if current["status"] not in ACTIVE:
+            if current["status"] not in WATCH_ACTIVE:
                 return
             if incident["status"] == "resolved":
                 conn.execute(
